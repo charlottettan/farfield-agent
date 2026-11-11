@@ -16,6 +16,17 @@ export function cleanTitle(t) {
     .trim();
 }
 
+// Browsers add their own name (and sometimes the profile) to the end of a window title:
+//   "Chat - Claude - Google Chrome - Charlotte (Person 1)"   (seen on a real Mac)
+// Everything from the last "<separator> <browser name>" onward is removed, so the page's own title is what is matched.
+const BROWSER_NAMES = "Google Chrome|Chromium|Brave|Microsoft Edge|Mozilla Firefox|Firefox|Safari|Arc|Opera|Vivaldi";
+export function stripBrowserSuffix(t) {
+  const re = new RegExp(`\\s[-–—|]\\s(?:${BROWSER_NAMES})(?=\\s[-–—|]\\s|$)`, "ig");
+  let at = -1, m;
+  while ((m = re.exec(t))) at = m.index;
+  return at >= 0 ? t.slice(0, at).trim() : t;
+}
+
 // Shows a title with any hidden or unusual characters spelled out, for diagnosing a title that does not match.
 export function showTitle(t) {
   return String(t || "").replace(/[^\x20-\x7E]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
@@ -35,7 +46,7 @@ export function identify(win, allowed) {
     const hit = TOOLS.find((t) => ids.includes(t.id) && t.hosts.some((h) => host === h || host.endsWith("." + h)));
     return hit ? { ...hit, basis: "address" } : null;
   }
-  const title = cleanTitle(win && win.title);
+  const title = stripBrowserSuffix(cleanTitle(win && win.title));
   const app = cleanTitle(win && win.app);
   if (!title && !app) return null;
   for (const t of TOOLS) {

@@ -1,4 +1,4 @@
-# Farfield desktop agent (v0.5.0, prototype)
+# Farfield desktop agent (v0.5.1, prototype)
 
 Watches the folders you choose for new Excel, Word and PowerPoint files. When a new file appears, it keeps a private
 copy as the "AI version". When the file is later saved with changes, it records what changed. If you have joined a
@@ -46,6 +46,7 @@ What it produces: the same records as the browser extension. Each task in a chat
 - **First conversation read on a real Mac (Safari + gemini.google.com):** the native reader exposed the whole page structure. Gemini marks your messages with a heading of class `screen-reader-user-query-label` ("You said") and `query-text-line` groups, its replies with a group whose id starts `model-response-message-content`, and the draft box with `ql-editor`. `src/screen/adapters/gemini.js` reads a conversation from those markers (tested against a structure copied from the real dump, with invented wording). Messages scrolled out of view came back with empty text, so only what is on screen is read. Whether Chrome and Firefox expose the same markers is not known yet. Other tools (Claude, ChatGPT, Copilot) have no adapter yet.
 - **The native reader reads the web page only,** not the browser's tab bar, address bar or favourites (a whole-window dump included every open tab's title). `--scope window` reads the whole window.
 - **To try it:** `node src/cli.js screen build` (once; compiles `ax.swift`, retrying older SDKs if needed), `node src/cli.js screen dump --delay 5` with the Gemini chat in front (it should report the messages it found, by `adapter:gemini`), then `screen on --agree` and `node src/cli.js app`.
+- **Chrome window titles:** Chrome appends its own name and the profile (`... - Claude - Google Chrome - Charlotte (Person 1)`), so the browser tail is removed before matching. Whether Chrome exposes the same page structure as Safari is being tested.
 - **Hidden characters in titles:** Gemini's page name starts with an invisible direction mark, so window titles are cleaned (invisible characters removed, non-breaking spaces turned into spaces) before matching. A title that still does not match is printed with hidden characters spelled out.
 - **Saved dumps keep structure only** by default (`--keep-text` saves the raw text). `screen forget` deletes them.
 - **Step one on a real machine:** open a test chat (nothing private) and run `node src/cli.js screen dump --delay 5`, then switch to the chat window. It saves what Farfield can see to `dumps/` and prints what it understood. Send that file and the fitting can be done properly.

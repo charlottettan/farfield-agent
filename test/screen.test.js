@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { identify, cleanTitle, showTitle } from "../src/screen/sites.js";
+import { identify, cleanTitle, showTitle, stripBrowserSuffix } from "../src/screen/sites.js";
 import { explain, createProbe, PICK_SOURCE, ensureNative, compileHelp } from "../src/screen/probe.js";
 import { shapeDump, maskNodes } from "../src/screen/shape.js";
 import { extractTurns } from "../src/screen/turns.js";
@@ -675,4 +675,24 @@ test("the Swift reader is limited to the web page unless told otherwise (checked
   for (const needle of ['"--scope"', "findWebArea", 'scope = "web"', "scopeWholeWindow", "var scope: String"]) assert.ok(src.includes(needle), needle);
   assert.ok(/\[\(start, 0\)\]/.test(src), "the walk must start from the chosen start element, not the whole window");
   assert.ok(!/\[\(win, 0\)\]/.test(src), "the walk must not start from the whole window");
+});
+
+test("browser name and profile at the end of a window title are removed before matching (Chrome, as seen on a real Mac)", () => {
+  const id = (app, title) => { const r = identify({ app, title }); return r && r.id; };
+  // the exact title seen in Chrome
+  assert.equal(id("Google Chrome", "Chrome extension for correction tracking - Claude - Google Chrome - Charlotte (Person 1)"), "claude");
+  assert.equal(id("Google Chrome", "Q3 summary - Claude - Google Chrome"), "claude");
+  assert.equal(id("Google Chrome", "Weekly update - Google Gemini - Google Chrome - Work"), "gemini");
+  assert.equal(id("Firefox", "Draft reply — ChatGPT — Mozilla Firefox"), "chatgpt");
+  assert.equal(id("Safari", "Sierra AI Connection Follow-Up Draft - Google Gemini"), "gemini");       // Safari adds nothing, as before
+  assert.equal(stripBrowserSuffix("A - B - Google Chrome - Charlotte (Person 1)"), "A - B");
+  assert.equal(stripBrowserSuffix("Notes about Safari - Claude"), "Notes about Safari - Claude");      // a browser name inside the page title is left alone
+  assert.equal(stripBrowserSuffix("Comparison - Safari vs Chrome - Claude"), "Comparison - Safari vs Chrome - Claude");
+  assert.equal(stripBrowserSuffix("Plain title"), "Plain title");
+  // look-alikes are still refused even with a browser tail
+  assert.equal(id("Google Chrome", "Claude vs GPT - Google Docs - Google Chrome - Charlotte (Person 1)"), null);
+  assert.equal(id("Google Chrome", "Inbox - Gmail - Google Chrome - Charlotte (Person 1)"), null);
+  assert.equal(id("Google Chrome", "Notes about Claude - Google Chrome"), null);
+  assert.equal(id("Google Chrome", "Q3 summary - Claude - Google Chrome", ), "claude");
+  assert.equal(identify({ app: "Google Chrome", title: "Q3 summary - Claude - Google Chrome - Work" }, ["chatgpt"]), null);                // still respects the allowed list
 });
