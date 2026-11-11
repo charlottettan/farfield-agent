@@ -26,7 +26,8 @@ Key: **Built** (in code and tested) · **Partly** · **Not built** · **You** (a
 ## Gaps I found while building the desktop agent
 - **The agent keeps a full copy of each followed file for up to 14 days**, in a plain folder, so it can compare it later. For a bank this is the most sensitive thing on the machine. Options: encrypt the copies with a key held by the operating system, or shorten the period.
 - **`data.json` holds the changed cell text** and the company login in plain text.
-- **Reading chat windows is only as safe as its allow-list.** It asks the front window's title first, and reads the content only if that matches an allowed AI chat (tested). Title matching is a guess, since the address is not available yet.
+- **Reading chat windows is only as safe as its allow-list, and today the list is per app, not per window.** It asks the front window's app and title first and reads the content only if that is an allowed AI chat (tested). But a dedicated app named after a tool is allowed whatever window is in front. On a real Mac the Claude desktop app's coding session had the same title, "Claude", as a chat, so it would be read too. Only messages it can parse as chat turns are kept, and nothing else is stored, but the text is read into memory first. Fixing this needs a check that a window really is a chat, which depends on what real chat windows look like.
+- **Saved window dumps used to include the raw text on screen.** They now save structure only (long text reduced to a length and a letter pattern) unless `--keep-text` is given, and `screen forget` deletes them.
 - **The local app page** is protected against other websites (tested in Chromium) but has not been tested in Safari or Edge.
 
 ## What a bank will ask for beyond this list

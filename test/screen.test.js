@@ -3,15 +3,16 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { identify } from "../src/screen/sites.js";
-import { explain, createProbe } from "../src/screen/probe.js";
-import { shapeDump } from "../src/screen/shape.js";
+import { identify, cleanTitle, showTitle } from "../src/screen/sites.js";
+import { explain, createProbe, PICK_SOURCE } from "../src/screen/probe.js";
+import { shapeDump, maskNodes } from "../src/screen/shape.js";
 import { extractTurns } from "../src/screen/turns.js";
 import { createObserver } from "../src/screen/observer.js";
 import { createScreenStep } from "../src/screen/watch.js";
 import { createAgent } from "../src/agent.js";
 import { saveConfig, defaults, loadConfig } from "../src/config.js";
 import { createFileStorage } from "../src/storage.js";
+import { main as cli } from "../src/cli.js";
 
 const CLAUDE = { id: "claude", name: "Claude" };
 const lines = (...pairs) => pairs.flatMap(([who, text]) => [{ role: "AXStaticText", text: who }, { role: "AXStaticText", text }]);
@@ -300,4 +301,139 @@ test("every macOS script Farfield sends is at least valid JavaScript (they canno
   await probe.tree({}); await probe.tree({ enableAccessibility: true }); await probe.tree({ engine: "fast" });
   assert.equal(scripts.length, 6);
   scripts.forEach((s, i) => { assert.doesNotThrow(() => new vm.Script(s), `script ${i} does not parse`); });
+});
+
+test("saved window dumps keep structure and short labels but never long text", () => {
+  const secret = "Rotate the production database password to hunter2-Prod-8841 before Friday";
+  const nodes = [{ role: "AXTextArea", depth: 3, text: secret }, { role: "AXButton", depth: 4, text: "Close tab" }, { role: "AXGroup", depth: 1, text: "" }];
+  const masked = maskNodes(nodes);
+  const saved = JSON.stringify(masked);
+  assert.ok(!/hunter2|password|Friday/i.test(saved));
+  assert.equal(masked[0].textLength, secret.length);
+  assert.equal(masked[1].text, "Close tab");
+  const shown = shapeDump({ win: { app: "Claude" }, nodes: masked });
+  assert.ok(!/hunter2|password/i.test(shown));
+  assert.ok(shown.includes(`len=${secret.length}`));
+  assert.ok(shown.includes('AXButton "Close tab"'));
+  // showing a raw dump and showing its masked copy gives the same picture
+  assert.equal(shapeDump({ win: { app: "Claude" }, nodes }), shapeDump({ win: { app: "Claude" }, nodes: masked }));
+});
+
+async function runCli(argv, home, probe) {
+  const lines = []; const orig = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (c) => { lines.push(String(c)); return true; };
+  try { const code = await cli(argv, { FARFIELD_HOME: home }, { probe }); return { code, out: lines.join("") }; }
+  finally { process.stdout.write = orig; }
+}
+
+test("screen dump: saves structure only by default, raw text only with --keep-text, and screen forget deletes it all", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ff-dump-"));
+  const SECRET = "Rotate the production database password to hunter2-Prod-8841 before Friday";
+  const probe = {
+    title: async () => ({ app: "Claude", title: "Claude" }),
+    check: async () => ({ windows: 1, top: 4 }),
+    tree: async () => ({ engine: "events", visited: 5, nodes: [{ role: "AXStaticText", depth: 2, text: "You" }, { role: "AXStaticText", depth: 2, text: SECRET }, { role: "AXStaticText", depth: 2, text: "Claude" }, { role: "AXStaticText", depth: 2, text: "Done." }] }),
+  };
+  const files = () => fs.readdirSync(path.join(home, "dumps")).filter((f) => f.endsWith(".json")).map((f) => fs.readFileSync(path.join(home, "dumps", f), "utf8"));
+  const a = await runCli(["screen", "dump"], home, probe);
+  assert.equal(a.code, 0);
+  assert.ok(!a.out.includes("hunter2"), "the terminal output should not print the text either");
+  assert.match(a.out, /Only the structure was saved/);
+  assert.match(a.out, /found 2 messages \(1 from you, 1 from the AI\)/);   // it still understood the chat in memory
+  let saved = files(); assert.equal(saved.length, 1);
+  assert.ok(!/hunter2|password/i.test(saved[0]));
+  assert.ok(saved[0].includes('"masked": true'));
+  await new Promise((r) => setTimeout(r, 5));
+  const b = await runCli(["screen", "dump", "--keep-text"], home, probe);
+  assert.match(b.out, /WITH the text/);
+  saved = files(); assert.equal(saved.length, 2);
+  assert.ok(saved.some((f) => f.includes("hunter2")));            // raw only because it was asked for
+  const shape = await runCli(["screen", "shape"], home, probe);
+  assert.ok(!/hunter2/.test(shape.out), "shape must not print the text, even from a raw dump");
+  const shapeFiles = fs.readdirSync(path.join(home, "dumps")).filter((f) => f.endsWith(".shape.txt"));
+  assert.ok(shapeFiles.length >= 1);
+  shapeFiles.forEach((f) => assert.ok(!/hunter2/.test(fs.readFileSync(path.join(home, "dumps", f), "utf8"))));
+  const forget = await runCli(["screen", "forget"], home, probe);
+  assert.match(forget.out, /Deleted \d+ saved file/);
+  assert.equal(fs.readdirSync(path.join(home, "dumps")).length, 0);
+});
+
+test("window choice: skips an untitled, empty helper window and picks the real one (the Chrome case seen on a real Mac)", () => {
+  const pickWindow = new Function(PICK_SOURCE + "; return pickWindow;")();
+  const win = (o) => ({ subrole: () => o.sub || "AXUnknown", name: () => o.name || "", uiElements: { length: o.items || 0 }, attributes: { byName: (n) => ({ value: () => (n === "AXMain" ? !!o.main : n === "AXFocused" ? !!o.focused : false) }) } });
+  const helper = win({}), devtools = win({ sub: "AXStandardWindow", name: "DevTools", items: 5 }), real = win({ sub: "AXStandardWindow", name: "Q3 summary - Claude", items: 40, main: true, focused: true }), other = win({ sub: "AXStandardWindow", name: "Inbox", items: 30 });
+  const r = pickWindow({ windows: () => [helper, devtools, real, other] });
+  assert.equal(r.index, 2);
+  assert.equal(r.window, real);
+  assert.equal(r.count, 4);
+  assert.deepEqual(r.info.map((w) => w.items), [0, 5, 40, 30]);
+  assert.equal(pickWindow({ windows: () => [helper] }).index, 0);       // a lone window is still chosen
+  assert.equal(pickWindow({ windows: () => [] }).window, null);
+  // with nothing marked main or focused, a titled window with content beats an empty one
+  assert.equal(pickWindow({ windows: () => [helper, win({ sub: "AXStandardWindow", name: "x", items: 3 })] }).index, 1);
+  // when a window throws on every question, it is skipped rather than breaking the choice
+  const broken = { subrole: () => { throw new Error("no"); }, name: () => { throw new Error("no"); }, uiElements: { get length() { throw new Error("no"); } }, attributes: { byName: () => { throw new Error("no"); } } };
+  assert.equal(pickWindow({ windows: () => [broken, real] }).index, 1);
+});
+
+test("all three macOS window scripts use the window chooser, not the first window", async () => {
+  const scripts = [];
+  const probe = createProbe("darwin", async (cmd, args) => { scripts.push(args[args.length - 1]); return { windows: 1, chosen: 0, top: 1, candidates: [], visited: 0, nodes: [], app: "x", title: "y" }; }, async () => {});
+  await probe.title(); await probe.check(); await probe.tree({});
+  assert.equal(scripts.length, 3);
+  scripts.forEach((s) => { assert.ok(s.includes("function pickWindow")); assert.ok(!/windows\[0\]/.test(s), "still reads the first window"); });
+});
+
+test("real titles seen so far: Safari shows 'Google Gemini', and look-alike titles are still refused", () => {
+  const ok = (app, title, id) => assert.equal(identify({ app, title }) && identify({ app, title }).id, id, `${app}: ${title}`);
+  ok("Safari", "Sierra AI Connection Follow-Up Draft - Google Gemini", "gemini");
+  ok("Google Chrome", "Q3 summary - Claude", "claude");
+  ok("Safari", "Google Gemini", "gemini");
+  ok("Firefox", "Some chat - ChatGPT", "chatgpt");
+  ok("Google Chrome", "Weekly update | Microsoft Copilot", "copilot");
+  assert.equal(identify({ app: "Safari", title: "Notes about Google Gemini" }), null);
+  assert.equal(identify({ app: "Safari", title: "Gemini vs Claude - Google Docs" }), null);
+  assert.equal(identify({ app: "Safari", title: "Why Google Gemini beat the benchmark" }), null);
+});
+
+test("the reading script keeps the top of the structure and records the window's errors", async () => {
+  let script = "";
+  await createProbe("darwin", async (cmd, args) => { script = args[args.length - 1]; return { nodes: [] }; }).tree({});
+  assert.ok(script.includes("depth <= 3"));
+  assert.ok(script.includes("errs.push"));
+  assert.ok(script.includes("errors: errs"));
+});
+
+test("screen dump says when the window reported problems, and keeps them in the saved file", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ff-dump2-"));
+  const probe = { title: async () => ({ app: "Safari", title: "x - Google Gemini" }), check: async () => ({ windows: 1, chosen: 0, top: 2, candidates: [] }),
+    tree: async () => ({ engine: "events", visited: 2, errors: ["Can't get object."], nodes: [{ role: "AXToolbar", depth: 1, text: "" }, { role: "AXGroup", depth: 1, text: "" }] }) };
+  const r = await runCli(["screen", "dump"], home, probe);
+  assert.match(r.out, /reported problems/);
+  assert.match(r.out, /Can't get object/);
+  const saved = fs.readdirSync(path.join(home, "dumps")).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(fs.readFileSync(path.join(home, "dumps", f), "utf8")))[0];
+  assert.deepEqual(saved.errors, ["Can't get object."]);
+  assert.deepEqual(saved.nodes.map((n) => n.role), ["AXToolbar", "AXGroup"]);
+});
+
+test("hidden characters in a window title do not stop it matching, and look-alikes are still refused", () => {
+  const LRM = "\u200e", NBSP = "\u00a0", ZWSP = "\u200b", BOM = "\ufeff";
+  const gem = (title) => identify({ app: "Safari", title });
+  assert.equal(gem("Sierra AI Connection Follow-Up Draft - Google Gemini" + LRM).id, "gemini");
+  assert.equal(gem(LRM + "Google Gemini").id, "gemini");
+  assert.equal(gem("Draft -" + NBSP + "Google" + NBSP + "Gemini").id, "gemini");
+  assert.equal(gem("Draft " + ZWSP + "\u2013 Google Gemini" + BOM).id, "gemini");              // en dash
+  assert.equal(gem("Notes about Google Gemini" + LRM), null);
+  assert.equal(gem("Gemini vs Claude - Google Docs" + LRM), null);
+  assert.equal(identify({ app: "Gem" + ZWSP + "ini", title: "anything" }) && identify({ app: "Gem" + ZWSP + "ini", title: "anything" }).id, "gemini");   // an app name with a hidden character
+  assert.equal(cleanTitle("  a" + NBSP + NBSP + "b" + LRM + "  "), "a b");
+  assert.equal(showTitle("Google Gemini" + LRM + "é"), "Google Gemini\\u200e\\u00e9");
+});
+
+test("screen dump shows an unrecognised title with hidden characters spelled out", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ff-dump3-"));
+  const probe = { title: async () => ({ app: "Safari", title: "Some page \u200e" }), check: async () => ({}), tree: async () => ({ nodes: [] }) };
+  const r = await runCli(["screen", "dump"], home, probe);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /hidden characters spelled out\): "Some page \\u200e"/);
 });

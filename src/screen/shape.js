@@ -4,6 +4,16 @@
 const SHORT = 14;
 const mask = (t) => String(t).replace(/[A-Z]/g, "X").replace(/[a-z]/g, "x").replace(/[0-9]/g, "9");
 
+// What gets saved by default: short texts (labels) kept, anything longer reduced to its length and a letter pattern.
+export function maskNodes(nodes) {
+  return (Array.isArray(nodes) ? nodes : []).map((n) => {
+    const text = String((n && n.text) || "");
+    const base = { role: n.role, ...(n.sub ? { sub: n.sub } : {}), ...(typeof n.depth === "number" ? { depth: n.depth } : {}) };
+    if (!text) return base;
+    return text.length <= SHORT ? { ...base, text } : { ...base, textLength: text.length, textShape: mask(text.slice(0, 20)) };
+  });
+}
+
 export function shapeDump(dump, { lines = 150 } = {}) {
   const nodes = Array.isArray(dump && dump.nodes) ? dump.nodes : [];
   const roles = {};
@@ -19,7 +29,8 @@ export function shapeDump(dump, { lines = 150 } = {}) {
     const depth = typeof n.depth === "number" ? Math.min(n.depth, 14) : 0;
     const label = (n.role || "?") + (n.sub ? "/" + n.sub : "");
     let t = "";
-    if (text) t = text.length <= SHORT ? JSON.stringify(text) : `len=${text.length} ${mask(text.slice(0, 20))}…`;
+    if (n.textLength) t = `len=${n.textLength} ${n.textShape || ""}…`;                  // already reduced when it was saved
+    else if (text) t = text.length <= SHORT ? JSON.stringify(text) : `len=${text.length} ${mask(text.slice(0, 20))}…`;
     out.push("  ".repeat(depth) + label + (t ? " " + t : ""));
     shown++;
   }

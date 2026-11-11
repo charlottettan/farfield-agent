@@ -7,9 +7,9 @@ import { createAgent } from "./agent.js";
 import fs from "node:fs";
 import { startApp } from "./app.js";
 import { createProbe } from "./screen/probe.js";
-import { identify } from "./screen/sites.js";
+import { identify, showTitle } from "./screen/sites.js";
 import { extractTurns } from "./screen/turns.js";
-import { shapeDump } from "./screen/shape.js";
+import { shapeDump, maskNodes } from "./screen/shape.js";
 
 const USAGE = `Farfield desktop agent
 
@@ -25,7 +25,8 @@ const USAGE = `Farfield desktop agent
   farfield-agent leave [--delete-data]  Leave the company (optionally delete what was sent)
   farfield-agent screen on --agree      Also read AI chat windows (ChatGPT, Claude, Gemini, Copilot) to catch re-prompts
   farfield-agent screen off
-  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine fast|slow] [--enable-accessibility]   Save what one chat window looks like to Farfield (test chat only)
+  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine fast|slow] [--enable-accessibility] [--keep-text]   Save the structure of one chat window (text only with --keep-text; test chat only)
+  farfield-agent screen forget          Delete every saved window dump
   farfield-agent screen shape [file]    Print the saved window's structure without its long text, safe to share after you read it
   farfield-agent where                  Show where its files live on this computer
 `;
@@ -36,7 +37,7 @@ function parse(argv) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const k = a.slice(2);
-      if (k === "agree" || k === "delete-data" || k === "no-open" || k === "any" || k === "enable-accessibility") flags[k] = true;
+      if (k === "agree" || k === "delete-data" || k === "no-open" || k === "any" || k === "enable-accessibility" || k === "keep-text") flags[k] = true;
       else flags[k] = argv[++i];
     } else pos.push(a);
   }
@@ -45,7 +46,7 @@ function parse(argv) {
 
 function say(s) { process.stdout.write(s + "\n"); }
 
-export async function main(argv, env = process.env) {
+export async function main(argv, env = process.env, deps = {}) {
   const { pos, flags } = parse(argv);
   const cmd = pos[0];
   const home = homeDir(env);
@@ -90,13 +91,17 @@ export async function main(argv, env = process.env) {
     if (sub === "dump") {
       const delay = Number(flags.delay || 0);
       if (delay > 0) { say(`Switch to the chat window now. Reading it in ${delay} seconds...`); await new Promise((r) => setTimeout(r, delay * 1000)); }
-      const probe = createProbe();
+      const probe = deps.probe || createProbe();
       const win = await probe.title();
       const tool = identify(win, cfg.screen && cfg.screen.tools);
       say(`Front window: app "${win.app}", title "${win.title}". Recognised as: ${tool ? tool.name + " (by " + tool.basis + ")" : "not an allowed AI chat"}.`);
+      if (!tool) say(`Title as Farfield sees it (hidden characters spelled out): "${showTitle(win.title)}"`);
       if (!tool && !flags.any) { say("Not reading it. Switch to an AI chat window (use --delay 5 to get time), or add --any to read this window anyway."); return 1; }
       say("This reads the text on that window. Use a test chat with nothing private in it.");
-      try { const c = await probe.check(); if (c && c.windows !== undefined) say(`Permission check passed: ${c.windows} window(s), ${c.top} top-level items in the front one.`); }
+      try { const c = await probe.check(); if (c && c.windows !== undefined) {
+        say(`Permission check passed: ${c.windows} window(s); using window ${c.chosen + 1}, which has ${c.top} top-level items.`);
+        if (Array.isArray(c.candidates)) say("Windows seen: " + c.candidates.map((w, i) => `#${i + 1} ${w.sub || "?"}${w.main ? " main" : ""}${w.named ? "" : " no-title"} ${w.items} items`).join("; "));
+      } }
       catch (e) { say("Permission check failed: " + e.message); return 1; }
       const maxNodes = Number(flags["max-nodes"] || 800), timeoutMs = Number(flags.timeout || 60) * 1000;
       say(`Reading up to ${maxNodes} items (limit ${timeoutMs / 1000} seconds). Larger windows are slow on a Mac.`);
@@ -107,17 +112,27 @@ export async function main(argv, env = process.env) {
       catch (e) { say("Could not read the window: " + e.message); return 1; }
       say(`Read took ${((Date.now() - started) / 1000).toFixed(1)} seconds, using the ${tree.engine || "default"} reader${tree.fellBack ? " (the fast one failed: " + tree.fellBack + ")" : ""}.`);
       if (tree.accessibility) say("What macOS accepted when asked to build the tree: " + Object.entries(tree.accessibility).map(([k, v]) => `${k}: ${v}`).join("; "));
+      if (Array.isArray(tree.errors) && tree.errors.length) say(`The window reported problems when asked for its contents (so the picture may be incomplete): ${tree.errors.join(" | ")}`);
       if (typeof tree.visited === "number") say(`Looked at ${tree.visited} items${tree.visited >= maxNodes ? " (hit the limit, so there may be more: try a higher --max-nodes)" : " (the whole window, so what it shows is everything the app exposes)"}.`);
       const nodes = Array.isArray(tree.nodes) ? tree.nodes : [];
       const dir = path.join(home, "dumps"); fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, "dump-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json");
-      fs.writeFileSync(file, JSON.stringify({ capturedAt: new Date().toISOString(), platform: process.platform, engine: tree.engine, visited: tree.visited, accessibility: tree.accessibility, enableAccessibility: flags["enable-accessibility"] === true, win, nodes }, null, 2), { mode: 0o600 });
+      // By default only the structure is saved: long text is reduced to a length and a letter pattern. Raw text needs --keep-text.
+      const keep = flags["keep-text"] === true;
+      fs.writeFileSync(file, JSON.stringify({ capturedAt: new Date().toISOString(), platform: process.platform, engine: tree.engine, visited: tree.visited, errors: tree.errors, accessibility: tree.accessibility, enableAccessibility: flags["enable-accessibility"] === true, masked: !keep, win, nodes: keep ? nodes : maskNodes(nodes) }, null, 2), { mode: 0o600 });
       const roles = {}; nodes.forEach((n) => { roles[n.role] = (roles[n.role] || 0) + 1; });
       const t = extractTurns({ nodes });
       say(`Read ${nodes.length} pieces of text. Most common kinds: ` + Object.entries(roles).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} x${v}`).join(", "));
       say(`Farfield found ${t.turns.length} messages (${t.turns.filter((x) => x.role === "user").length} from you, ${t.turns.filter((x) => x.role === "assistant").length} from the AI), by ${t.basis}.`);
-      t.turns.slice(0, 8).forEach((x) => say(`  ${x.role}: ${x.text.slice(0, 70).replace(/\n/g, " ")}`));
-      say("Saved to " + file + ". Look through it before sharing it with anyone: it contains what was on that window.");
+      if (keep) t.turns.slice(0, 8).forEach((x) => say(`  ${x.role}: ${x.text.slice(0, 70).replace(/\n/g, " ")}`));
+      say(keep ? "Saved to " + file + " WITH the text that was on the window. Look through it before sharing it, and delete it when done (screen forget)." : "Saved to " + file + ". Only the structure was saved: long text is reduced to a length and a letter pattern.");
+      return 0;
+    }
+    if (sub === "forget") {
+      const dir = path.join(home, "dumps");
+      const all = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+      all.forEach((f) => fs.unlinkSync(path.join(dir, f)));
+      say(all.length ? `Deleted ${all.length} saved file(s) from ${dir}.` : "No saved window dumps to delete.");
       return 0;
     }
     if (sub === "shape") {
@@ -130,7 +145,7 @@ export async function main(argv, env = process.env) {
       say("\nThis shows labels and structure, not long text. Read it through before you share it.");
       return 0;
     }
-    say("Use: screen on --agree | screen off | screen dump | screen shape [file]"); return 1;
+    say("Use: screen on --agree | screen off | screen dump | screen shape [file] | screen forget"); return 1;
   }
 
   if (cmd === "app") {

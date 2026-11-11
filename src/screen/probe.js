@@ -10,11 +10,35 @@ import { execFile } from "node:child_process";
 
 const DEFAULT_NODES = 3000, MAX_DEPTH = 30, MAX_OUTPUT = 4 * 1024 * 1024;
 
+// Browsers keep several windows (helper windows with no title or content). Pick the one that is the real, main window.
+export const PICK_SOURCE = `
+function pickWindow(p) {
+  let ws = [];
+  try { ws = p.windows(); } catch (e) {}
+  let best = null, bestScore = -1, bestIndex = -1;
+  const info = [];
+  for (let i = 0; i < ws.length; i++) {
+    const w = ws[i]; let score = 0, sub = "", main = false, named = false, items = 0;
+    try { sub = String(w.subrole()); if (sub === "AXStandardWindow") score += 2; } catch (e) {}
+    try { main = w.attributes.byName("AXMain").value() === true; if (main) score += 4; } catch (e) {}
+    try { if (w.attributes.byName("AXFocused").value() === true) score += 4; } catch (e) {}
+    try { named = !!w.name(); if (named) score += 1; } catch (e) {}
+    try { items = w.uiElements.length; if (items > 0) score += 1; } catch (e) {}
+    info.push({ sub: sub, main: main, named: named, items: items });
+    score -= i * 0.01;
+    if (score > bestScore) { best = w; bestScore = score; bestIndex = i; }
+  }
+  return { window: best, index: bestIndex, count: ws.length, info: info };
+}
+`;
+
 const MAC_TITLE = `
+${PICK_SOURCE}
 const se = Application("System Events");
 const p = se.processes.whose({ frontmost: true })[0];
+const pick = pickWindow(p);
 let title = "";
-try { title = p.windows[0].name(); } catch (e) { title = ""; }
+try { title = pick.window ? pick.window.name() : ""; } catch (e) { title = ""; }
 JSON.stringify({ app: p.name(), title: title });
 `;
 
@@ -33,9 +57,10 @@ JSON.stringify({ attributes: res });
 `;
 
 const macTree = (MAX_NODES) => `
+${PICK_SOURCE}
 const se = Application("System Events");
 const p = se.processes.whose({ frontmost: true })[0];
-const out = []; let count = 0;
+const out = []; let count = 0; const errs = [];
 // "description" in System Events is the role description ("button", "group"), not content, so it is not used.
 function text(el) {
   for (const f of ["value", "title", "accessibilityDescription", "name"]) {
@@ -47,18 +72,18 @@ const KEEP = { AXWebArea: 1, AXScrollArea: 1, AXOutline: 1, AXTextArea: 1, AXTex
 function walk(el, depth) {
   if (count >= ${MAX_NODES} || depth > ${MAX_DEPTH}) return;
   let kids = [];
-  try { kids = el.uiElements(); } catch (e) {}
+  try { kids = el.uiElements(); } catch (e) { if (errs.length < 5) errs.push(String(e).slice(0, 120)); }
   for (const k of kids) {
     if (count >= ${MAX_NODES}) return;
     count++;
     let role = ""; try { role = k.role(); } catch (e) {}
     const t = text(k);
-    if (t || KEEP[role]) out.push({ role: role, depth: depth, text: t });
+    if (t || KEEP[role] || depth <= 3) out.push({ role: role, depth: depth, text: t });
     walk(k, depth + 1);
   }
 }
-try { walk(p.windows[0], 0); } catch (e) {}
-JSON.stringify({ visited: count, nodes: out });
+try { const pick = pickWindow(p); if (pick.window) walk(pick.window, 0); } catch (e) {}
+JSON.stringify({ visited: count, errors: errs, nodes: out });
 `;
 
 const WIN_TITLE = `
@@ -162,9 +187,12 @@ JSON.stringify({ engine: "native", visited: visited, nodes: out });
 `;
 
 const MAC_CHECK = `
+${PICK_SOURCE}
 const se = Application("System Events");
 const p = se.processes.whose({ frontmost: true })[0];
-JSON.stringify({ windows: p.windows.length, top: p.windows[0].uiElements.length });
+const pick = pickWindow(p);
+let top = 0; try { top = pick.window ? pick.window.uiElements.length : 0; } catch (e) {}
+JSON.stringify({ windows: pick.count, chosen: pick.index, top: top, candidates: pick.info });
 `;
 
 // opts for tree(): { maxNodes, timeoutMs, engine: "slow" (default) | "fast" (experimental, failed on a real Mac) }.
