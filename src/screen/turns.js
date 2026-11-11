@@ -33,6 +33,8 @@ export function extractTurns(snapshot) {
       parts.push(i.text);
     }
     if (role) push(role, parts);
+    // a page with no message from the person is not a conversation (an app header that says "Claude" is not a reply)
+    if (!turns.some((t) => t.role === "user")) return { turns: [], composer, basis: "none" };
     return { turns, composer, basis: "structure" };
   }
 
@@ -44,5 +46,6 @@ export function extractTurns(snapshot) {
     if (role) parts.push(i.text);                 // text before the first label is not attributed to anyone
   }
   if (role) push(role, parts);
-  return { turns, composer, basis: turns.length ? "labels" : "none" };
+  if (!turns.some((t) => t.role === "user")) return { turns: [], composer, basis: "none" };
+  return { turns, composer, basis: "labels" };
 }

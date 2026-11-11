@@ -25,7 +25,7 @@ const USAGE = `Farfield desktop agent
   farfield-agent leave [--delete-data]  Leave the company (optionally delete what was sent)
   farfield-agent screen on --agree      Also read AI chat windows (ChatGPT, Claude, Gemini, Copilot) to catch re-prompts
   farfield-agent screen off
-  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine fast|slow]   Save what one chat window looks like to Farfield (test chat only)
+  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine fast|slow] [--enable-accessibility]   Save what one chat window looks like to Farfield (test chat only)
   farfield-agent screen shape [file]    Print the saved window's structure without its long text, safe to share after you read it
   farfield-agent where                  Show where its files live on this computer
 `;
@@ -36,7 +36,7 @@ function parse(argv) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const k = a.slice(2);
-      if (k === "agree" || k === "delete-data" || k === "no-open" || k === "any") flags[k] = true;
+      if (k === "agree" || k === "delete-data" || k === "no-open" || k === "any" || k === "enable-accessibility") flags[k] = true;
       else flags[k] = argv[++i];
     } else pos.push(a);
   }
@@ -102,13 +102,15 @@ export async function main(argv, env = process.env) {
       say(`Reading up to ${maxNodes} items (limit ${timeoutMs / 1000} seconds). Larger windows are slow on a Mac.`);
       const started = Date.now();
       let tree;
-      try { tree = await probe.tree({ maxNodes, timeoutMs, engine: flags.engine || "auto" }); }
+      if (flags["enable-accessibility"]) say("Asking the app to build its accessibility tree, as VoiceOver would. It stays on in that app until you quit it and can use more memory there. Waiting a few seconds for it.");
+      try { tree = await probe.tree({ maxNodes, timeoutMs, engine: flags.engine || "auto", enableAccessibility: flags["enable-accessibility"] === true }); }
       catch (e) { say("Could not read the window: " + e.message); return 1; }
       say(`Read took ${((Date.now() - started) / 1000).toFixed(1)} seconds, using the ${tree.engine || "default"} reader${tree.fellBack ? " (the fast one failed: " + tree.fellBack + ")" : ""}.`);
+      if (typeof tree.visited === "number") say(`Looked at ${tree.visited} items${tree.visited >= maxNodes ? " (hit the limit, so there may be more: try a higher --max-nodes)" : " (the whole window, so what it shows is everything the app exposes)"}.`);
       const nodes = Array.isArray(tree.nodes) ? tree.nodes : [];
       const dir = path.join(home, "dumps"); fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, "dump-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json");
-      fs.writeFileSync(file, JSON.stringify({ capturedAt: new Date().toISOString(), platform: process.platform, engine: tree.engine, win, nodes }, null, 2), { mode: 0o600 });
+      fs.writeFileSync(file, JSON.stringify({ capturedAt: new Date().toISOString(), platform: process.platform, engine: tree.engine, visited: tree.visited, enableAccessibility: flags["enable-accessibility"] === true, win, nodes }, null, 2), { mode: 0o600 });
       const roles = {}; nodes.forEach((n) => { roles[n.role] = (roles[n.role] || 0) + 1; });
       const t = extractTurns({ nodes });
       say(`Read ${nodes.length} pieces of text. Most common kinds: ` + Object.entries(roles).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} x${v}`).join(", "));

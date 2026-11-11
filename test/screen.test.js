@@ -257,3 +257,27 @@ test("shape: shows structure and short labels, never long text", () => {
   assert.match(out, /engine: native/);
   assert.ok(shapeDump({ nodes: Array.from({ length: 500 }, () => ({ role: "AXRow", text: "" })) }, { lines: 20 }).includes("more items not shown"));
 });
+
+test("a page with no message from the person is not a conversation (the real Claude app header case)", () => {
+  // what a real Mac returned for the Claude desktop app: an app header that says "Claude", then the page title
+  const snap = { nodes: [
+    { role: "AXGroup", text: "Claude" }, { role: "AXWebArea", text: "Follow-up email to Tim - Claude" },
+    { role: "AXHeading", text: "Claude" }, { role: "AXStaticText", text: "Claude" },
+  ] };
+  assert.deepEqual(extractTurns(snap).turns, []);
+  const o = createObserver({ now: () => 1, mode: "full" });
+  const r = o.feed(snap, { id: "claude", name: "Claude" });
+  assert.deepEqual(r.sessions, []);
+  assert.equal(o.conversations(), 0);
+  // but a message from the person with no reply yet is still a conversation
+  assert.equal(extractTurns({ nodes: lines(["You", "Summarize Q3"]) }).turns.length, 1);
+});
+
+test("macOS reader: asking the app to build its accessibility tree happens only when requested", async () => {
+  const scripts = [];
+  const probe = createProbe("darwin", async (cmd, args) => { scripts.push(args[args.length - 1]); return { visited: 0, nodes: [] }; });
+  await probe.tree({});
+  await probe.tree({ enableAccessibility: true });
+  assert.ok(!scripts[0].includes("AXManualAccessibility"));
+  assert.ok(scripts[1].includes("AXManualAccessibility") && scripts[1].includes("AXEnhancedUserInterface"));
+});
