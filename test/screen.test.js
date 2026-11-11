@@ -220,23 +220,25 @@ test("the status says what the last look at the screen did, without any content"
   assert.ok(!JSON.stringify(st.screen).includes("Acme"));
 });
 
-test("macOS reader: falls back to the slow one on an odd failure, but not on a permission problem or a timeout", async () => {
+test("macOS reader: the slow reader is the default, the experimental fast one only on request", async () => {
   const calls = [];
-  const mk = (failFast) => createProbe("darwin", async (cmd, args) => {
-    const script = args[args.length - 1]; const fast = script.includes("AXUIElementCopyAttributeValue");
-    calls.push(fast ? "fast" : "slow");
-    if (fast && failFast) throw new Error(failFast);
+  const probe = createProbe("darwin", async (cmd, args) => {
+    const script = args[args.length - 1]; calls.push(script.includes("AXUIElementCopyAttributeValue") ? "fast" : "slow");
     return { nodes: [{ role: "AXStaticText", text: "hi" }] };
   });
-  let r = await mk("ObjC is unhappy").tree({});
-  assert.deepEqual(calls.splice(0), ["fast", "slow"]);
-  assert.equal(r.engine, "events"); assert.match(r.fellBack, /ObjC is unhappy/);
-  await assert.rejects(mk("macOS has not allowed this. Open System Settings > Privacy & Security > Accessibility").tree({}), /Accessibility/);
+  let r = await probe.tree({});
+  assert.deepEqual(calls.splice(0), ["slow"]); assert.equal(r.engine, "events");
+  await probe.tree({ engine: "fast" });
   assert.deepEqual(calls.splice(0), ["fast"]);
-  await assert.rejects(mk("It took longer than 40 seconds and was stopped.").tree({}), /longer than/);
-  assert.deepEqual(calls.splice(0), ["fast"]);
-  r = await mk(null).tree({ engine: "slow" });
-  assert.deepEqual(calls.splice(0), ["slow"]);
+});
+
+test("macOS reader: reads content properties, never the role description, and records depth", async () => {
+  let script = "";
+  await createProbe("darwin", async (cmd, args) => { script = args[args.length - 1]; return { nodes: [] }; }).tree({});
+  assert.ok(script.includes('"accessibilityDescription"'));
+  assert.ok(!/\[\s*"value",\s*"title",\s*"description"/.test(script));
+  assert.ok(script.includes("depth: depth"));
+  assert.ok(script.includes("AXWebArea"));
 });
 
 test("shape: shows structure and short labels, never long text", () => {

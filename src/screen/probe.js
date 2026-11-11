@@ -22,12 +22,14 @@ const macTree = (MAX_NODES) => `
 const se = Application("System Events");
 const p = se.processes.whose({ frontmost: true })[0];
 const out = []; let count = 0;
+// "description" in System Events is the role description ("button", "group"), not content, so it is not used.
 function text(el) {
-  for (const f of ["value", "title", "description"]) {
+  for (const f of ["value", "title", "accessibilityDescription", "name"]) {
     try { const v = el[f](); if (typeof v === "string" && v.trim()) return v; } catch (e) {}
   }
   return "";
 }
+const KEEP = { AXWebArea: 1, AXScrollArea: 1, AXOutline: 1, AXTextArea: 1, AXTextField: 1, AXSplitGroup: 1, AXList: 1, AXTable: 1, AXStaticText: 1 };
 function walk(el, depth) {
   if (count >= ${MAX_NODES} || depth > ${MAX_DEPTH}) return;
   let kids = [];
@@ -37,12 +39,12 @@ function walk(el, depth) {
     count++;
     let role = ""; try { role = k.role(); } catch (e) {}
     const t = text(k);
-    if (t) out.push({ role: role, text: t });
+    if (t || KEEP[role]) out.push({ role: role, depth: depth, text: t });
     walk(k, depth + 1);
   }
 }
 try { walk(p.windows[0], 0); } catch (e) {}
-JSON.stringify({ nodes: out });
+JSON.stringify({ visited: count, nodes: out });
 `;
 
 const WIN_TITLE = `
@@ -151,8 +153,7 @@ const p = se.processes.whose({ frontmost: true })[0];
 JSON.stringify({ windows: p.windows.length, top: p.windows[0].uiElements.length });
 `;
 
-// opts for tree(): { maxNodes, timeoutMs, engine: "auto" | "fast" | "slow" }.
-// "auto" tries the fast native reader and falls back to the slow one, unless the problem is a permission or a timeout.
+// opts for tree(): { maxNodes, timeoutMs, engine: "slow" (default) | "fast" (experimental, failed on a real Mac) }.
 export function createProbe(platform = process.platform, runner = run) {
   if (platform === "darwin") {
     const slow = (o) => runner("osascript", ["-l", "JavaScript", "-e", macTree(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000).then((r) => ({ engine: "events", ...r }));
@@ -162,14 +163,9 @@ export function createProbe(platform = process.platform, runner = run) {
       check: () => runner("osascript", ["-l", "JavaScript", "-e", MAC_CHECK], 15000),
       async tree(o = {}) {
         const engine = o.engine || "auto";
-        if (engine === "slow") return slow(o);
+        // The fast reader failed on the first real Mac it ran on ("Ref has incompatible type"), so it is opt-in only.
         if (engine === "fast") return fast(o);
-        try { return await fast(o); }
-        catch (e) {
-          if (/longer than|Accessibility|Automation/.test(String(e.message))) throw e;   // a fallback cannot fix these
-          const r = await slow(o);
-          return { ...r, fellBack: String(e.message).slice(0, 200) };
-        }
+        return slow(o);
       },
     };
   }
