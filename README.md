@@ -1,4 +1,4 @@
-# Farfield desktop agent (v0.3, prototype)
+# Farfield desktop agent (v0.3.1, prototype)
 
 Watches the folders you choose for new Excel, Word and PowerPoint files. When a new file appears, it keeps a private
 copy as the "AI version". When the file is later saved with changes, it records what changed. If you have joined a

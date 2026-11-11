@@ -24,7 +24,7 @@ const USAGE = `Farfield desktop agent
   farfield-agent leave [--delete-data]  Leave the company (optionally delete what was sent)
   farfield-agent screen on --agree      Also read AI chat windows (ChatGPT, Claude, Gemini, Copilot) to catch re-prompts
   farfield-agent screen off
-  farfield-agent screen dump [--delay 5] [--any]   Save what one chat window looks like to Farfield, for checking (test chat only)
+  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60]   Save what one chat window looks like to Farfield (test chat only)
   farfield-agent where                  Show where its files live on this computer
 `;
 
@@ -94,7 +94,15 @@ export async function main(argv, env = process.env) {
       say(`Front window: app "${win.app}", title "${win.title}". Recognised as: ${tool ? tool.name + " (by " + tool.basis + ")" : "not an allowed AI chat"}.`);
       if (!tool && !flags.any) { say("Not reading it. Switch to an AI chat window (use --delay 5 to get time), or add --any to read this window anyway."); return 1; }
       say("This reads the text on that window. Use a test chat with nothing private in it.");
-      const tree = await probe.tree();
+      try { const c = await probe.check(); if (c && c.windows !== undefined) say(`Permission check passed: ${c.windows} window(s), ${c.top} top-level items in the front one.`); }
+      catch (e) { say("Permission check failed: " + e.message); return 1; }
+      const maxNodes = Number(flags["max-nodes"] || 800), timeoutMs = Number(flags.timeout || 60) * 1000;
+      say(`Reading up to ${maxNodes} items (limit ${timeoutMs / 1000} seconds). Larger windows are slow on a Mac.`);
+      const started = Date.now();
+      let tree;
+      try { tree = await probe.tree({ maxNodes, timeoutMs }); }
+      catch (e) { say("Could not read the window: " + e.message); return 1; }
+      say(`Read took ${((Date.now() - started) / 1000).toFixed(1)} seconds.`);
       const nodes = Array.isArray(tree.nodes) ? tree.nodes : [];
       const dir = path.join(home, "dumps"); fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, "dump-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json");

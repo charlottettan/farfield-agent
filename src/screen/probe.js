@@ -8,7 +8,7 @@
 //   Chrome only exposes page text to accessibility tools when its accessibility support is on (chrome://accessibility).
 import { execFile } from "node:child_process";
 
-const MAX_NODES = 3000, MAX_DEPTH = 30, MAX_OUTPUT = 4 * 1024 * 1024;
+const DEFAULT_NODES = 3000, MAX_DEPTH = 30, MAX_OUTPUT = 4 * 1024 * 1024;
 
 const MAC_TITLE = `
 const se = Application("System Events");
@@ -18,7 +18,7 @@ try { title = p.windows[0].name(); } catch (e) { title = ""; }
 JSON.stringify({ app: p.name(), title: title });
 `;
 
-const MAC_TREE = `
+const macTree = (MAX_NODES) => `
 const se = Application("System Events");
 const p = se.processes.whose({ frontmost: true })[0];
 const out = []; let count = 0;
@@ -58,7 +58,7 @@ $app = ""; try { $app = (Get-Process -Id $pid2).ProcessName } catch {}
 @{ app = $app; title = $sb.ToString() } | ConvertTo-Json -Compress
 `;
 
-const WIN_TREE = `
+const winTree = (MAX_NODES) => `
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -85,30 +85,48 @@ while ($queue.Count -gt 0 -and $count -lt ${MAX_NODES}) {
 @{ nodes = $out } | ConvertTo-Json -Compress -Depth 4
 `;
 
+// Turns a failed command into a sentence a person can act on. The script itself is never part of the message.
+export function explain(err, stderr, timeoutMs) {
+  const text = String(stderr || "").trim() || String((err && err.message) || "").split("\n").slice(1).join(" ").trim();
+  if (err && (err.killed || err.signal === "SIGTERM") && !text) return `It took longer than ${Math.round(timeoutMs / 1000)} seconds and was stopped. The window has a lot of content; try --max-nodes 300.`;
+  if (/assistive|accessib|-25211|-1719|1002|not allowed/i.test(text)) return "macOS has not allowed this. Open System Settings > Privacy & Security > Accessibility, turn on Terminal (or the app you ran this from), then run it again. " + text.slice(-160);
+  if (/-1743|not authorized|automation/i.test(text)) return "macOS asked for permission to control System Events and it was not granted. Open System Settings > Privacy & Security > Automation and allow it. " + text.slice(-160);
+  return (text || "The probe failed with no message.").slice(-300);
+}
+
 function run(cmd, args, timeoutMs) {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { timeout: timeoutMs, maxBuffer: MAX_OUTPUT, windowsHide: true }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(((stderr || "") + " " + (err.message || "")).trim().slice(0, 300)));
-      try { resolve(JSON.parse(String(stdout).trim())); } catch { reject(new Error("The probe returned something that was not JSON.")); }
+      if (err) return reject(new Error(explain(err, stderr, timeoutMs)));
+      try { resolve(JSON.parse(String(stdout).trim())); } catch { reject(new Error("The probe returned something that was not JSON: " + String(stdout).slice(0, 120))); }
     });
   });
 }
 
 const ps = (script) => ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
 
+const MAC_CHECK = `
+const se = Application("System Events");
+const p = se.processes.whose({ frontmost: true })[0];
+JSON.stringify({ windows: p.windows.length, top: p.windows[0].uiElements.length });
+`;
+
+// opts: { maxNodes, timeoutMs }. Smaller numbers are faster; macOS answers one question per element, so big windows are slow.
 export function createProbe(platform = process.platform) {
   if (platform === "darwin") {
     return {
       title: () => run("osascript", ["-l", "JavaScript", "-e", MAC_TITLE], 8000),
-      tree: () => run("osascript", ["-l", "JavaScript", "-e", MAC_TREE], 40000),
+      check: () => run("osascript", ["-l", "JavaScript", "-e", MAC_CHECK], 15000),
+      tree: (o = {}) => run("osascript", ["-l", "JavaScript", "-e", macTree(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000),
     };
   }
   if (platform === "win32") {
     return {
       title: () => run("powershell.exe", ps(WIN_TITLE), 10000),
-      tree: () => run("powershell.exe", ps(WIN_TREE), 40000),
+      check: () => Promise.resolve({ ok: true }),
+      tree: (o = {}) => run("powershell.exe", ps(winTree(o.maxNodes || DEFAULT_NODES)), o.timeoutMs || 40000),
     };
   }
   const no = () => Promise.reject(new Error("Reading chat windows is only set up for macOS and Windows."));
-  return { title: no, tree: no };
+  return { title: no, check: no, tree: no };
 }

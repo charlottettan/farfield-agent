@@ -22,14 +22,17 @@ export function identify(win, allowed) {
   }
   const title = String((win && win.title) || "").trim();
   const app = String((win && win.app) || "");
-  if (!title) return null;
+  if (!title && !app) return null;
   for (const t of TOOLS) {
     if (!ids.includes(t.id)) continue;
     const n = esc(t.name);
     // "Claude" on its own, or "Some chat - Claude". A title that merely starts with the name ("Claude vs GPT - Google Docs") does not count.
     const looksLike = new RegExp(`^${n}$|[-|–—:]\\s*${n}\\s*$`, "i").test(title);
+    // An app that is itself named after the tool ("Gemini") is the tool, whatever its window title says (seen on a real Mac:
+    // the title was "Gemini — <chat name>"). In a browser the title has to look like the tool's own tab title.
     const desktopApp = new RegExp(`^${n}$`, "i").test(app);
-    if (looksLike && (BROWSERS.test(app) || desktopApp)) return { ...t, basis: "title" };
+    if (desktopApp) return { ...t, basis: "app" };
+    if (looksLike && BROWSERS.test(app)) return { ...t, basis: "title" };
   }
   return null;
 }

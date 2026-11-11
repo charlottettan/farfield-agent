@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { identify } from "../src/screen/sites.js";
+import { explain } from "../src/screen/probe.js";
 import { extractTurns } from "../src/screen/turns.js";
 import { createObserver } from "../src/screen/observer.js";
 import { createScreenStep } from "../src/screen/watch.js";
@@ -180,4 +181,26 @@ test("screen step: nothing from the screen is written except sent prompts and se
   const raw = fs.readFileSync(path.join(s.home, "data.json"), "utf8");
   assert.ok(!raw.includes("998877") && !raw.includes("554433"));
   assert.ok(!raw.includes("Q3 summary - Claude"));          // window titles are not stored either
+});
+
+test("a real Mac window title: the Gemini app, with the name first and an em dash (seen on a real machine)", () => {
+  const w = { app: "Gemini", title: "Gemini — Project Pinecone Status Update" };
+  assert.equal(identify(w).id, "gemini");
+  assert.equal(identify(w).basis, "app");
+  assert.equal(identify(w, ["claude"]), null);                                        // still respects the allowed list
+  assert.equal(identify({ app: "Google Chrome", title: "Gemini — Project Pinecone Status Update" }), null);   // in a browser the title alone is not enough
+  assert.equal(identify({ app: "Notes", title: "Gemini — shopping list" }), null);
+});
+
+test("probe errors say what happened and never include the script", () => {
+  const killed = explain({ killed: true, signal: "SIGTERM", message: "Command failed: osascript -e SCRIPT" }, "", 40000);
+  assert.match(killed, /longer than 40 seconds/);
+  assert.match(killed, /--max-nodes/);
+  const perm = explain({ message: "Command failed: osascript -e SCRIPT\nosascript is not allowed assistive access. (-25211)" }, "", 15000);
+  assert.match(perm, /Accessibility/);
+  const auto = explain({ message: "x" }, "Not authorized to send Apple events to System Events. (-1743)", 15000);
+  assert.match(auto, /Automation/);
+  const other = explain({ message: "Command failed: osascript -e SCRIPT\nsomething odd happened" }, "", 1000);
+  assert.ok(!/SCRIPT/.test(other));
+  assert.match(other, /something odd/);
 });
