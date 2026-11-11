@@ -25,7 +25,7 @@ const USAGE = `Farfield desktop agent
   farfield-agent leave [--delete-data]  Leave the company (optionally delete what was sent)
   farfield-agent screen on --agree      Also read AI chat windows (ChatGPT, Claude, Gemini, Copilot) to catch re-prompts
   farfield-agent screen off
-  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine fast|slow] [--enable-accessibility] [--keep-text]   Save the structure of one chat window (text only with --keep-text; test chat only)
+  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine native|slow] [--enable-accessibility] [--keep-text]   Save the structure of one chat window (text only with --keep-text; test chat only)
   farfield-agent screen forget          Delete every saved window dump
   farfield-agent screen shape [file]    Print the saved window's structure without its long text, safe to share after you read it
   farfield-agent where                  Show where its files live on this computer
@@ -91,7 +91,7 @@ export async function main(argv, env = process.env, deps = {}) {
     if (sub === "dump") {
       const delay = Number(flags.delay || 0);
       if (delay > 0) { say(`Switch to the chat window now. Reading it in ${delay} seconds...`); await new Promise((r) => setTimeout(r, delay * 1000)); }
-      const probe = deps.probe || createProbe();
+      const probe = deps.probe || createProbe(process.platform, undefined, undefined, { binDir: path.join(home, "bin") });
       const win = await probe.title();
       const tool = identify(win, cfg.screen && cfg.screen.tools);
       say(`Front window: app "${win.app}", title "${win.title}". Recognised as: ${tool ? tool.name + " (by " + tool.basis + ")" : "not an allowed AI chat"}.`);

@@ -1,4 +1,4 @@
-# Farfield desktop agent (v0.3.9, prototype)
+# Farfield desktop agent (v0.4.0, prototype)
 
 Watches the folders you choose for new Excel, Word and PowerPoint files. When a new file appears, it keeps a private
 copy as the "AI version". When the file is later saved with changes, it records what changed. If you have joined a
@@ -40,6 +40,7 @@ What it produces: the same records as the browser extension. Each task in a chat
 - **Asking the app to build its tree works:** on a real Mac, macOS accepted `AXManualAccessibility` and `AXEnhancedUserInterface` on the Claude app. Whether that makes a chat's messages readable is not yet known, because the window tested turned out to be a coding session, not a chat.
 - **Chrome (a Mac):** the first test read the wrong window (Chrome had 4, and the first one was an untitled helper with no content), so it found nothing. Window choice now prefers the main, titled window with content. Chrome accepted `AXEnhancedUserInterface`; `AXManualAccessibility` is not supported there. Whether Chrome then exposes a chat's messages is not yet known.
 - **Safari (a Mac):** the title was `... - Google Gemini`, which the matcher did not know (fixed). The read looked at only 2 items and kept none, because only items with text were kept. It now keeps the top levels of structure and records any errors the window gives, so the next run shows what those 2 items are.
+- **Safari (a Mac), second run:** the page is exposed: a web area, the Gemini sidebar links, and a heading that is probably the start of the conversation. The slow reader (System Events) was refused five times ("Can't get object") before reaching the messages. A native reader, `src/screen/ax.swift`, calls the Accessibility API directly and also reads the page's own element ids and class names. Try it with `--engine native`. It is compiled once with Swift (from Apple's command line tools) into `~/.farfield-agent/bin`. It has never been compiled or run. Shipping it to employees would mean a signed program.
 - **Hidden characters in titles:** Gemini's page name starts with an invisible direction mark, so window titles are cleaned (invisible characters removed, non-breaking spaces turned into spaces) before matching. A title that still does not match is printed with hidden characters spelled out.
 - **Saved dumps keep structure only** by default (`--keep-text` saves the raw text). `screen forget` deletes them.
 - **Step one on a real machine:** open a test chat (nothing private) and run `node src/cli.js screen dump --delay 5`, then switch to the chat window. It saves what Farfield can see to `dumps/` and prints what it understood. Send that file and the fitting can be done properly.

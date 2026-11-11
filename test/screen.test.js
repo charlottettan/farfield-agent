@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { identify, cleanTitle, showTitle } from "../src/screen/sites.js";
-import { explain, createProbe, PICK_SOURCE } from "../src/screen/probe.js";
+import { explain, createProbe, PICK_SOURCE, ensureNative, compileHelp } from "../src/screen/probe.js";
 import { shapeDump, maskNodes } from "../src/screen/shape.js";
 import { extractTurns } from "../src/screen/turns.js";
 import { createObserver } from "../src/screen/observer.js";
@@ -436,4 +436,60 @@ test("screen dump shows an unrecognised title with hidden characters spelled out
   const r = await runCli(["screen", "dump"], home, probe);
   assert.equal(r.code, 1);
   assert.match(r.out, /hidden characters spelled out\): "Some page \\u200e"/);
+});
+
+test("native reader: compiled once and reused, recompiled when the source changes, with help when Swift is missing", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ff-native-"));
+  const src = path.join(dir, "ax.swift"); fs.writeFileSync(src, "// v1");
+  const calls = [];
+  const compile = async (cmd, args) => { calls.push([cmd, args]); fs.writeFileSync(args[args.indexOf("-o") + 1], "binary"); };
+  const binDir = path.join(dir, "bin");
+  const a = await ensureNative({ binDir, compile, source: src });
+  const b = await ensureNative({ binDir, compile, source: src });
+  assert.equal(a, b); assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "swiftc"); assert.ok(calls[0][1].includes("-O"));
+  fs.writeFileSync(src, "// v2");
+  const c = await ensureNative({ binDir, compile, source: src });
+  assert.notEqual(c, a); assert.equal(calls.length, 2);
+  const missing = Object.assign(new Error("spawn swiftc ENOENT"), { code: "ENOENT" });
+  await assert.rejects(ensureNative({ binDir: path.join(dir, "b2"), compile: async () => { throw missing; }, source: src }), /xcode-select --install/);
+  const broken = new Error("ax.swift:12:5: error: cannot find 'foo' in scope");
+  await assert.rejects(ensureNative({ binDir: path.join(dir, "b3"), compile: async () => { throw broken; }, source: src }), /Paste this back[\s\S]*cannot find 'foo'/);
+  assert.match(compileHelp({ message: "xcrun: error: invalid active developer path" }), /xcode-select/);
+});
+
+test("native reader: the engine runs the compiled program with the size, time and enable options", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ff-native2-"));
+  const src = path.join(dir, "ax.swift"); fs.writeFileSync(src, "// x");
+  const ran = [];
+  const probe = createProbe("darwin", async (cmd, args, t) => { ran.push({ cmd, args, t }); return { engine: "native", visited: 9, errors: [], accessibility: { AXEnhancedUserInterface: "set" }, nodes: [] }; }, async () => {},
+    { binDir: path.join(dir, "bin"), compile: async (c, a) => { fs.writeFileSync(a[a.indexOf("-o") + 1], "bin"); }, fsApi: { ...fs, readFileSync: (p) => (String(p).endsWith("ax.swift") ? "// fixed" : fs.readFileSync(p)) } });
+  const r = await probe.tree({ engine: "native", maxNodes: 1500, timeoutMs: 120000, enableAccessibility: true });
+  assert.equal(r.engine, "native");
+  assert.match(ran[0].cmd, /farfield-ax-/);
+  assert.deepEqual(ran[0].args, ["--max", "1500", "--seconds", "110", "--enable"]);
+  assert.equal(ran[0].t, 120000);
+  await probe.tree({ engine: "native" });
+  assert.ok(!ran[1].args.includes("--enable"));
+});
+
+test("the Swift source is at least balanced and has the calls the reader depends on (it cannot be compiled here)", () => {
+  const src = fs.readFileSync(new URL("../src/screen/ax.swift", import.meta.url), "utf8");
+  const code = src.replace(/\/\/.*$/gm, "").replace(/"(?:[^"\\]|\\.)*"/g, '""');          // drop comments and strings
+  const count = (re) => (code.match(re) || []).length;
+  assert.equal(count(/\{/g), count(/\}/g), "braces");
+  assert.equal(count(/\(/g), count(/\)/g), "parentheses");
+  assert.equal(count(/\[/g), count(/\]/g), "brackets");
+  for (const needle of ["AXIsProcessTrusted", "AXUIElementCopyAttributeValue", "AXChildren", "AXDOMClassList", "AXMain", "AXStandardWindow", "JSONEncoder"]) assert.ok(src.includes(needle), needle);
+  assert.ok(!/CGWindowListCreateImage|CGEvent|AXUIElementPerformAction/.test(src), "the reader must not take screenshots, send events, or click");
+});
+
+test("the page's own class names are kept in saved structure and shown in the shape, but long text is not", () => {
+  const nodes = [{ role: "AXGroup", depth: 5, text: "", dom: "message-content.user-query-bubble" }, { role: "AXStaticText", depth: 6, text: "Draft a long confidential reply about the Sierra deal terms", dom: "query-text-line" }];
+  const masked = maskNodes(nodes);
+  assert.equal(masked[0].dom, "message-content.user-query-bubble");
+  assert.ok(!/confidential|Sierra/.test(JSON.stringify(masked)));
+  const shown = shapeDump({ win: { app: "Safari" }, nodes: masked });
+  assert.ok(shown.includes("[message-content.user-query-bubble]"));
+  assert.ok(!/confidential|Sierra/.test(shown));
 });

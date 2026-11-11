@@ -30,5 +30,7 @@ Key: **Built** (in code and tested) · **Partly** · **Not built** · **You** (a
 - **Saved window dumps used to include the raw text on screen.** They now save structure only (long text reduced to a length and a letter pattern) unless `--keep-text` is given, and `screen forget` deletes them.
 - **The local app page** is protected against other websites (tested in Chromium) but has not been tested in Safari or Edge.
 
+- **The native reader is a compiled program on the employee's computer.** For a pilot it would need to be signed and notarized by Apple, and IT will ask what it can do. It cannot take screenshots, send keystrokes, or click (a test checks the source for those calls), but that is a check of the source, not a review of the compiled program.
+
 ## What a bank will ask for beyond this list
 A SOC 2 report or a plan for one, a penetration test summary, a data processing agreement, your subprocessor list, and a short description of exactly what employees' computers send. Most of these are paperwork and process, and they take weeks to months.

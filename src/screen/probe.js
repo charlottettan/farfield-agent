@@ -7,6 +7,11 @@
 //   macOS needs Accessibility permission for the app running this (System Settings > Privacy & Security > Accessibility).
 //   Chrome only exposes page text to accessibility tools when its accessibility support is on (chrome://accessibility).
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_NODES = 3000, MAX_DEPTH = 30, MAX_OUTPUT = 4 * 1024 * 1024;
 
@@ -195,10 +200,43 @@ let top = 0; try { top = pick.window ? pick.window.uiElements.length : 0; } catc
 JSON.stringify({ windows: pick.count, chosen: pick.index, top: top, candidates: pick.info });
 `;
 
-// opts for tree(): { maxNodes, timeoutMs, engine: "slow" (default) | "fast" (experimental, failed on a real Mac) }.
+// opts for tree(): { maxNodes, timeoutMs, engine: "slow" (default) | "native" (Swift, experimental) | "fast" (failed on a real Mac) }.
+// ---- The native macOS reader (src/screen/ax.swift): calls the Accessibility API directly, like a screen reader does.
+// It is compiled once with the Swift compiler that comes with Apple's command line tools, then reused.
+// STATUS: never compiled or run. Compile errors are returned in full so they can be fixed.
+const AX_SOURCE = path.join(path.dirname(fileURLToPath(import.meta.url)), "ax.swift");
+
+function runRaw(cmd, args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: timeoutMs, maxBuffer: MAX_OUTPUT, windowsHide: true }, (err, stdout, stderr) => {
+      if (err) { const e = new Error(String(stderr || err.message || "").slice(-1500)); e.code = err.code; return reject(e); }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+export function compileHelp(e) {
+  const text = String((e && e.message) || "");
+  if ((e && e.code === "ENOENT") || /xcrun: error|command not found|no developer tools|ENOENT/i.test(text)) {
+    return "Swift was not found. In Terminal run: xcode-select --install, wait for it to finish, then try again.";
+  }
+  return "Swift could not compile the reader. Paste this back so it can be fixed:\n" + text.slice(-1200);
+}
+
+export async function ensureNative({ binDir, compile = runRaw, fsApi = fs, source = AX_SOURCE } = {}) {
+  const hash = crypto.createHash("sha256").update(fsApi.readFileSync(source)).digest("hex").slice(0, 12);
+  const bin = path.join(binDir, "farfield-ax-" + hash);          // a changed source gives a new name, so it is recompiled
+  if (fsApi.existsSync(bin)) return bin;
+  fsApi.mkdirSync(binDir, { recursive: true });
+  try { await compile("swiftc", ["-O", "-o", bin, source], 300000); }
+  catch (e) { throw new Error(compileHelp(e)); }
+  return bin;
+}
+
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function createProbe(platform = process.platform, runner = run, sleep = sleepMs) {
+export function createProbe(platform = process.platform, runner = run, sleep = sleepMs, extra = {}) {
+  const binDir = extra.binDir || path.join(os.homedir(), ".farfield-agent", "bin");
   if (platform === "darwin") {
     const slow = (o) => runner("osascript", ["-l", "JavaScript", "-e", macTree(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000).then((r) => ({ engine: "events", ...r }));
     const fast = (o) => runner("osascript", ["-l", "JavaScript", "-e", macTreeFast(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000);
@@ -209,6 +247,12 @@ export function createProbe(platform = process.platform, runner = run, sleep = s
         const engine = o.engine || "auto";
         // The fast reader failed on the first real Mac it ran on ("Ref has incompatible type"), so it is opt-in only.
         if (engine === "fast") return fast(o);
+        if (engine === "native") {
+          const bin = await ensureNative({ binDir, compile: extra.compile, fsApi: extra.fsApi });
+          const args = ["--max", String(o.maxNodes || 2000), "--seconds", String(Math.max(5, Math.round((o.timeoutMs || 60000) / 1000) - 10))];
+          if (o.enableAccessibility === true) args.push("--enable");
+          return runner(bin, args, o.timeoutMs || 60000);
+        }
         let accessibility;
         if (o.enableAccessibility === true) {
           const r = await runner("osascript", ["-l", "JavaScript", "-e", MAC_ENABLE], 15000);
