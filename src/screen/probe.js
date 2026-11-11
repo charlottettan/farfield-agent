@@ -18,18 +18,23 @@ try { title = p.windows[0].name(); } catch (e) { title = ""; }
 JSON.stringify({ app: p.name(), title: title });
 `;
 
-const MAC_ENABLE = `
 // Asks the front app to build its accessibility tree, the same request VoiceOver makes. It stays on in that app until the
-// app is quit, and can use more memory there. Only used when explicitly asked for. STATUS: not yet confirmed on a real Mac.
-try { p.attributes.byName("AXManualAccessibility").value = true; } catch (e) {}
-try { p.attributes.byName("AXEnhancedUserInterface").value = true; } catch (e) {}
-const std = Application.currentApplication(); std.includeStandardAdditions = true; std.delay(3);
-`;
-
-const macTree = (MAX_NODES, enable) => `
+// app is quit, and can use more memory there. Run only when explicitly asked for, as its own step, and it reports what macOS
+// accepted for each setting. STATUS: the first attempt, inside the reading script, failed with "Message not understood (-1708)".
+const MAC_ENABLE = `
 const se = Application("System Events");
 const p = se.processes.whose({ frontmost: true })[0];
-${enable ? MAC_ENABLE : ""}
+const res = {};
+for (const name of ["AXManualAccessibility", "AXEnhancedUserInterface"]) {
+  try { p.attributes.byName(name).value = true; res[name] = "set"; }
+  catch (e) { res[name] = "failed: " + String(e).slice(0, 140); }
+}
+JSON.stringify({ attributes: res });
+`;
+
+const macTree = (MAX_NODES) => `
+const se = Application("System Events");
+const p = se.processes.whose({ frontmost: true })[0];
 const out = []; let count = 0;
 // "description" in System Events is the role description ("button", "group"), not content, so it is not used.
 function text(el) {
@@ -163,9 +168,11 @@ JSON.stringify({ windows: p.windows.length, top: p.windows[0].uiElements.length 
 `;
 
 // opts for tree(): { maxNodes, timeoutMs, engine: "slow" (default) | "fast" (experimental, failed on a real Mac) }.
-export function createProbe(platform = process.platform, runner = run) {
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export function createProbe(platform = process.platform, runner = run, sleep = sleepMs) {
   if (platform === "darwin") {
-    const slow = (o) => runner("osascript", ["-l", "JavaScript", "-e", macTree(o.maxNodes || DEFAULT_NODES, o.enableAccessibility === true)], o.timeoutMs || 40000).then((r) => ({ engine: "events", ...r }));
+    const slow = (o) => runner("osascript", ["-l", "JavaScript", "-e", macTree(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000).then((r) => ({ engine: "events", ...r }));
     const fast = (o) => runner("osascript", ["-l", "JavaScript", "-e", macTreeFast(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000);
     return {
       title: () => runner("osascript", ["-l", "JavaScript", "-e", MAC_TITLE], 8000),
@@ -174,7 +181,14 @@ export function createProbe(platform = process.platform, runner = run) {
         const engine = o.engine || "auto";
         // The fast reader failed on the first real Mac it ran on ("Ref has incompatible type"), so it is opt-in only.
         if (engine === "fast") return fast(o);
-        return slow(o);
+        let accessibility;
+        if (o.enableAccessibility === true) {
+          const r = await runner("osascript", ["-l", "JavaScript", "-e", MAC_ENABLE], 15000);
+          accessibility = r.attributes;
+          await sleep(o.settleMs === undefined ? 3000 : o.settleMs);      // give the app time to build its tree
+        }
+        const out = await slow(o);
+        return accessibility ? { ...out, accessibility } : out;
       },
     };
   }

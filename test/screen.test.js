@@ -273,11 +273,31 @@ test("a page with no message from the person is not a conversation (the real Cla
   assert.equal(extractTurns({ nodes: lines(["You", "Summarize Q3"]) }).turns.length, 1);
 });
 
-test("macOS reader: asking the app to build its accessibility tree happens only when requested", async () => {
+test("macOS reader: asking the app to build its accessibility tree is a separate, reported step, and only when requested", async () => {
+  const scripts = [], waits = [];
+  const probe = createProbe("darwin", async (cmd, args) => {
+    const sc = args[args.length - 1]; scripts.push(sc);
+    return sc.includes("AXManualAccessibility") ? { attributes: { AXManualAccessibility: "set", AXEnhancedUserInterface: "failed: nope" } } : { visited: 3, nodes: [] };
+  }, async (ms) => { waits.push(ms); });
+  const plain = await probe.tree({});
+  assert.equal(scripts.length, 1); assert.ok(!scripts[0].includes("AXManualAccessibility")); assert.equal(plain.accessibility, undefined);
+  scripts.length = 0;
+  const asked = await probe.tree({ enableAccessibility: true });
+  assert.equal(scripts.length, 2);
+  assert.ok(scripts[0].includes("AXManualAccessibility") && scripts[0].includes("AXEnhancedUserInterface"));
+  assert.ok(!scripts[1].includes("AXManualAccessibility"));         // the reading script does not touch the app's settings
+  assert.deepEqual(waits, [3000]);
+  assert.equal(asked.accessibility.AXManualAccessibility, "set");
+  assert.match(asked.accessibility.AXEnhancedUserInterface, /failed/);
+  assert.equal(asked.visited, 3);
+});
+
+test("every macOS script Farfield sends is at least valid JavaScript (they cannot be run here, so this catches typos)", async () => {
+  const vm = await import("node:vm");
   const scripts = [];
-  const probe = createProbe("darwin", async (cmd, args) => { scripts.push(args[args.length - 1]); return { visited: 0, nodes: [] }; });
-  await probe.tree({});
-  await probe.tree({ enableAccessibility: true });
-  assert.ok(!scripts[0].includes("AXManualAccessibility"));
-  assert.ok(scripts[1].includes("AXManualAccessibility") && scripts[1].includes("AXEnhancedUserInterface"));
+  const probe = createProbe("darwin", async (cmd, args) => { scripts.push(args[args.length - 1]); return { attributes: {}, visited: 0, nodes: [], windows: 1, top: 1, app: "x", title: "y" }; }, async () => {});
+  await probe.title(); await probe.check();
+  await probe.tree({}); await probe.tree({ enableAccessibility: true }); await probe.tree({ engine: "fast" });
+  assert.equal(scripts.length, 6);
+  scripts.forEach((s, i) => { assert.doesNotThrow(() => new vm.Script(s), `script ${i} does not parse`); });
 });

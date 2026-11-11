@@ -106,11 +106,12 @@ export async function main(argv, env = process.env) {
       try { tree = await probe.tree({ maxNodes, timeoutMs, engine: flags.engine || "auto", enableAccessibility: flags["enable-accessibility"] === true }); }
       catch (e) { say("Could not read the window: " + e.message); return 1; }
       say(`Read took ${((Date.now() - started) / 1000).toFixed(1)} seconds, using the ${tree.engine || "default"} reader${tree.fellBack ? " (the fast one failed: " + tree.fellBack + ")" : ""}.`);
+      if (tree.accessibility) say("What macOS accepted when asked to build the tree: " + Object.entries(tree.accessibility).map(([k, v]) => `${k}: ${v}`).join("; "));
       if (typeof tree.visited === "number") say(`Looked at ${tree.visited} items${tree.visited >= maxNodes ? " (hit the limit, so there may be more: try a higher --max-nodes)" : " (the whole window, so what it shows is everything the app exposes)"}.`);
       const nodes = Array.isArray(tree.nodes) ? tree.nodes : [];
       const dir = path.join(home, "dumps"); fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, "dump-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json");
-      fs.writeFileSync(file, JSON.stringify({ capturedAt: new Date().toISOString(), platform: process.platform, engine: tree.engine, visited: tree.visited, enableAccessibility: flags["enable-accessibility"] === true, win, nodes }, null, 2), { mode: 0o600 });
+      fs.writeFileSync(file, JSON.stringify({ capturedAt: new Date().toISOString(), platform: process.platform, engine: tree.engine, visited: tree.visited, accessibility: tree.accessibility, enableAccessibility: flags["enable-accessibility"] === true, win, nodes }, null, 2), { mode: 0o600 });
       const roles = {}; nodes.forEach((n) => { roles[n.role] = (roles[n.role] || 0) + 1; });
       const t = extractTurns({ nodes });
       say(`Read ${nodes.length} pieces of text. Most common kinds: ` + Object.entries(roles).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} x${v}`).join(", "));
