@@ -28,6 +28,7 @@ const USAGE = `Farfield desktop agent
   farfield-agent screen off
   farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine native|slow] [--scope window] [--enable-accessibility] [--keep-text]   Save the structure of one chat window (text only with --keep-text; test chat only)
   farfield-agent screen build           Compile the native Mac reader once (needed before screen on works at full speed)
+  farfield-agent screen log             What chat reading has seen lately (no message text), to find out why something was not captured
   farfield-agent screen forget          Delete every saved window dump
   farfield-agent screen shape [file]    Print the saved window's structure without its long text, safe to share after you read it
   farfield-agent where                  Show where its files live on this computer
@@ -138,6 +139,21 @@ export async function main(argv, env = process.env, deps = {}) {
       say("Ready: " + bin);
       return 0;
     }
+    if (sub === "log") {
+      const a = createAgent({ home });
+      const log = ((await a.storage.local.get("screenLog")).screenLog || []).slice(-Number(flags.lines || 20));
+      if (!log.length) { say("Nothing logged yet. Turn on chat reading (screen on --agree), run `app`, and keep an AI chat in front for about 30 seconds."); return 0; }
+      const hhmmss = (t) => new Date(t).toTimeString().slice(0, 8);
+      log.forEach((e) => {
+        let what;
+        if (e.skipped === "not_allowed") what = "the window in front was not an AI chat, so nothing was read";
+        else if (e.skipped === "probe_error") what = "could not read the window: " + (e.error || "unknown problem");
+        else if (e.skipped) what = "skipped: " + e.skipped;
+        else what = `${e.tool}: ${e.seen} message(s) on screen, ${e.labels} new follow-up(s), ${e.rePrompts} counted as corrections` + (e.engine ? ` [${e.engine}]` : "");
+        say(`${hhmmss(e.at)}  ${what}`);
+      });
+      return 0;
+    }
     if (sub === "forget") {
       const dir = path.join(home, "dumps");
       const all = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
@@ -155,7 +171,7 @@ export async function main(argv, env = process.env, deps = {}) {
       say("\nThis shows labels and structure, not long text. Read it through before you share it.");
       return 0;
     }
-    say("Use: screen on --agree | screen off | screen dump | screen build | screen shape [file] | screen forget"); return 1;
+    say("Use: screen on --agree | screen off | screen dump | screen build | screen log | screen shape [file] | screen forget"); return 1;
   }
 
   if (cmd === "app") {

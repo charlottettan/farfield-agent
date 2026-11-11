@@ -61,8 +61,9 @@
     if (l.skipped === "not_allowed") return "Chat reading is on. The window in front is not an AI chat, so nothing was read.";
     if (l.skipped === "probe_error") return "Chat reading is on but could not read the window: " + (l.error || "unknown problem");
     if (l.skipped) return "Chat reading is on. Last look skipped: " + l.skipped + ".";
-    if (!l.labels && !l.rePrompts) return "Chat reading is on. Last look: found an AI chat (" + l.tool + ") but no new follow-up messages.";
-    return "Chat reading is on. Last look: " + l.tool + ", " + l.labels + " new follow-up message(s), " + l.rePrompts + " counted as corrections.";
+    if (!l.seen) return "Chat reading is on. Last look: found an AI chat (" + l.tool + ") but could not read any messages from it.";
+    if (!l.labels && !l.rePrompts) return "Chat reading is on. Last look: " + l.tool + ", " + l.seen + " message(s) on screen, none new since the last look.";
+    return "Chat reading is on. Last look: " + l.tool + ", " + l.seen + " message(s) on screen, " + l.labels + " new follow-up(s), " + l.rePrompts + " counted as corrections.";
   }
 
   function drawCompany(s) {

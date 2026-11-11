@@ -739,3 +739,57 @@ test("the Swift reader can jump to a labelled element and read only the end of i
   for (const needle of ['"--focus"', '"--tail"', "findByLabel", "kids.suffix(tailCount)", "focusResult", "skippedChildren", "var focus: String", "var skipped: Int"]) assert.ok(src.includes(needle), needle);
   assert.ok(/if d == 0 && tailing/.test(src), "only the first level is cut to its tail");
 });
+
+test("each tool's chats get their own workflow row, instead of all landing in one 'Unassigned workflow'", () => {
+  let t = 1_700_000_000_000; const o = createObserver({ now: () => t, mode: "full" });
+  const mk = (who) => [...lines(["You", "Summarize the Q3 earnings call for Acme Corp"], [who, "Revenue was $1.2 billion."]), ...lines(["You", "The revenue figure is wrong, it was $1.1 billion"])];
+  const a = o.feed({ nodes: mk("Claude") }, { id: "claude", name: "Claude" });
+  t += 1000;
+  const b = o.feed({ nodes: mk("Gemini") }, { id: "gemini", name: "Gemini" });
+  assert.equal(a.sessions[0].workflow, "Claude chat"); assert.equal(a.rePrompts[0].workflow, "Claude chat");
+  assert.equal(b.sessions[0].workflow, "Gemini chat"); assert.equal(b.rePrompts[0].workflow, "Gemini chat");
+  assert.ok(!JSON.stringify([a, b]).includes("Unassigned"));
+});
+
+test("the observer reports how many messages were on screen, even when none are new", () => {
+  let t = 1_700_000_000_000; const o = createObserver({ now: () => t, mode: "full" });
+  const tool = { id: "claude", name: "Claude" };
+  assert.equal(o.feed({ nodes: first }, tool).seen, 2);
+  t += 5000;
+  const again = o.feed({ nodes: first }, tool);
+  assert.equal(again.seen, 2); assert.equal(again.labels.length, 0);
+  assert.equal(o.feed({ nodes: [{ role: "AXStaticText", text: "nothing here" }] }, tool).seen, 0);
+});
+
+test("screen log: every distinct look is recorded without any message text, and an unchanged look is not repeated", async () => {
+  const s = setup({ tools: ["claude"] }); const a = s.mk();
+  s.state.win = { app: "Google Chrome", title: "Inbox - Gmail - Google Chrome - Me" };
+  await a.tick();
+  s.c.tick(30); s.state.win = { app: "Google Chrome", title: "Q3 summary - Claude - Google Chrome - Me" }; s.state.nodes = first;
+  await a.tick();
+  s.c.tick(15); await a.tick();                                       // the same screen again: not logged twice
+  s.c.tick(30); s.state.nodes = [...first, ...lines(["You", "The revenue figure is wrong, it was $1.1 billion"])];
+  await a.tick();
+  const log = (await a.storage.local.get("screenLog")).screenLog;
+  assert.equal(log.length, 3);
+  assert.deepEqual(log.map((e) => e.skipped || e.tool), ["not_allowed", "claude", "claude"]);
+  assert.deepEqual(log.map((e) => [e.seen, e.labels, e.rePrompts]), [[0, 0, 0], [2, 0, 0], [3, 1, 1]]);
+  const raw = JSON.stringify(log);
+  assert.ok(!/Acme|revenue figure|Gmail|Inbox/.test(raw), "the log must not hold content or titles");
+  const r = await runCli(["screen", "log"], s.home, null);
+  const rows = r.out.trim().split("\n");
+  assert.equal(rows.length, 3);
+  assert.match(rows[0], /the window in front was not an AI chat/);
+  assert.match(rows[1], /claude: 2 message\(s\) on screen, 0 new follow-up\(s\), 0 counted/);
+  assert.match(rows[2], /claude: 3 message\(s\) on screen, 1 new follow-up\(s\), 1 counted/);
+  const empty = await runCli(["screen", "log"], fs.mkdtempSync(path.join(os.tmpdir(), "ff-nolog-")), null);
+  assert.match(empty.out, /Nothing logged yet/);
+});
+
+test("a probe error shows up in the log with its reason", async () => {
+  const s = setup(); const a = s.mk();
+  s.probe.title = async () => { throw new Error("macOS has not allowed this. Open System Settings > Privacy & Security > Accessibility"); };
+  await a.tick();
+  const r = await runCli(["screen", "log"], s.home, null);
+  assert.match(r.out, /could not read the window: macOS has not allowed this/);
+});

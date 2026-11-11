@@ -38,7 +38,7 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
         if (!agents.includes(tool.name)) patch.settings = { ...settings, agents: agents.concat([tool.name]) };
         await storage.local.set(patch);
       }
-      return { tool: tool.id, basis: tool.basis, rePrompts: res.rePrompts.length, labels: res.labels.length };
+      return { tool: tool.id, basis: tool.basis, engine: snapshot.engine || "", seen: res.seen, rePrompts: res.rePrompts.length, labels: res.labels.length, fellBack: snapshot.fellBack || "" };
     } finally { busy = false; }
   };
 }

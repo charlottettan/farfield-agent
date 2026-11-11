@@ -33,7 +33,7 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
 
   function sessionRecord(c, ep, t) {
     return {
-      id: "scr_" + h(c.id + ":" + ep.n).slice(0, 14), site: c.tool.name, workflow: "Unassigned workflow",
+      id: "scr_" + h(c.id + ":" + ep.n).slice(0, 14), site: c.tool.name, workflow: c.tool.name + " chat",
       startedAt: ep.startedAt, lastAt: t, attempts: 1 + ep.corrections, regens: 0,
       gapSeconds: Math.round(ep.reviewSeconds), done: false, source: "live",
     };
@@ -43,7 +43,8 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
   function feed(snapshot, tool) {
     const t = now();
     const { turns } = extractTurns(snapshot, tool);
-    const out = { rePrompts: [], sessions: [], labels: [] };
+    const out = { rePrompts: [], sessions: [], labels: [], seen: 0 };
+    out.seen = turns.length;
     if (!turns.length) return out;
     const keys = keysOf(turns);
     let c = find(tool, keys, t);
@@ -81,7 +82,7 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
       ep.reviewSeconds += Math.min(gap, 600);
       const sessionId = "scr_" + h(c.id + ":" + ep.n).slice(0, 14);
       const rec = A.buildRePrompt({
-        id: "scrp_" + h(sessionId + k).slice(0, 14), sessionId, site: tool.name, workflow: "Unassigned workflow",
+        id: "scrp_" + h(sessionId + k).slice(0, 14), sessionId, site: tool.name, workflow: tool.name + " chat",
         attemptIndex: ep.corrections + 1, kind: "followup", text: turn.text, mode, now: t, user, reviewSec: gap, source: "live",
       });
       if (rec) out.rePrompts.push(rec);
