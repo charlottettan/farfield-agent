@@ -2,6 +2,7 @@
 import { identify } from "./sites.js";
 import { createObserver } from "./observer.js";
 import { hintsFor } from "./adapters/index.js";
+import { titleShape, cleanTitle } from "./sites.js";
 
 function mergeById(existing, incoming) {
   const map = new Map((Array.isArray(existing) ? existing : []).map((x) => [x.id, x]));
@@ -24,7 +25,7 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
       let win;
       try { win = await probe.title(); } catch (e) { return { skipped: "probe_error", error: String((e && e.message) || e).slice(0, 200) }; }
       const tool = identify(win, sc.tools);
-      if (!tool) return { skipped: "not_allowed" };            // the window's content is never requested
+      if (!tool) return { skipped: "not_allowed", app: cleanTitle(win && win.app).slice(0, 60), titleShape: titleShape(win && win.title) };            // the window's content is never requested
       let snapshot;
       try { snapshot = await probe.tree({ engine: sc.engine || "auto", build: false, maxNodes: 6000, timeoutMs: 30000, ...hintsFor(tool.id) }); } catch (e) { return { skipped: "probe_error", error: String((e && e.message) || e).slice(0, 200) }; }
       const mode = sc.storeMode === "full" || sc.storeMode === "off" ? sc.storeMode : "redacted";

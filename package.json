@@ -1,6 +1,6 @@
 {
   "name": "farfield-agent",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "private": true,
   "description": "Farfield desktop agent: watches AI-generated Office files in folders you choose and records the edits people make to them.",
   "type": "module",

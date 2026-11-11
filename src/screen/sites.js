@@ -27,6 +27,13 @@ export function stripBrowserSuffix(t) {
   return at >= 0 ? t.slice(0, at).trim() : t;
 }
 
+// The shape of a title: names of AI tools, browsers and a few common apps are kept, every other word becomes a pattern of letters and
+// digits. It shows whether a title looks like "<something> - Claude - Google Chrome" without keeping what the something is.
+const KEEP_WORDS = new Set("claude chatgpt gemini copilot google microsoft openai chrome safari firefox edge brave arc opera vivaldi mozilla chromium gmail docs sheets slides outlook word excel powerpoint terminal iterm finder slack teams zoom notion code".split(" "));
+export function titleShape(t) {
+  return cleanTitle(t).replace(/[A-Za-z]+/g, (w) => (KEEP_WORDS.has(w.toLowerCase()) ? w : w[0] === w[0].toUpperCase() && w.length > 1 ? "X" + "x".repeat(w.length - 1) : "x".repeat(w.length))).replace(/[0-9]/g, "9").slice(0, 120);
+}
+
 // Shows a title with any hidden or unusual characters spelled out, for diagnosing a title that does not match.
 export function showTitle(t) {
   return String(t || "").replace(/[^\x20-\x7E]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));

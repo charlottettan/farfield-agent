@@ -144,13 +144,18 @@ export async function main(argv, env = process.env, deps = {}) {
       const log = ((await a.storage.local.get("screenLog")).screenLog || []).slice(-Number(flags.lines || 20));
       if (!log.length) { say("Nothing logged yet. Turn on chat reading (screen on --agree), run `app`, and keep an AI chat in front for about 30 seconds."); return 0; }
       const hhmmss = (t) => new Date(t).toTimeString().slice(0, 8);
+      const cfgNow = loadConfig(home);
+      const lastAt = ((await a.storage.local.get("screenLast")).screenLast || {}).at || 0;
+      const ago = lastAt ? Math.round((Date.now() - lastAt) / 1000) : 0;
+      say(`Chat reading is ${cfgNow.screen && cfgNow.screen.enabled ? "ON" : "OFF"}${cfgNow.paused ? " (paused)" : ""}. Latest activity logged ${lastAt ? hhmmss(lastAt) + ", " + (ago < 120 ? ago + " seconds" : Math.round(ago / 60) + " minutes") + " ago" : "never"}.`);
+      if (lastAt && ago > 150) say("Nothing has been logged for a while. Is `node src/cli.js app` still running in a terminal window?");
       log.forEach((e) => {
         let what;
-        if (e.skipped === "not_allowed") what = "the window in front was not an AI chat, so nothing was read";
+        if (e.skipped === "not_allowed") what = `the window in front was ${e.app || "an unknown app"}${e.titleShape ? ` (title pattern: ${e.titleShape})` : ""}, which does not look like an AI chat, so nothing was read`;
         else if (e.skipped === "probe_error") what = "could not read the window: " + (e.error || "unknown problem");
         else if (e.skipped) what = "skipped: " + e.skipped;
         else what = `${e.tool}: ${e.seen} message(s) on screen, ${e.labels} new follow-up(s), ${e.rePrompts} counted as corrections` + (e.engine ? ` [${e.engine}]` : "");
-        say(`${hhmmss(e.at)}  ${what}`);
+        say(`${hhmmss(e.at)}${e.lastAt && e.lastAt - e.at > 60000 ? "-" + hhmmss(e.lastAt) : ""}  ${what}`);
       });
       return 0;
     }

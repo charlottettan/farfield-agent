@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { identify, cleanTitle, showTitle, stripBrowserSuffix } from "../src/screen/sites.js";
+import { identify, cleanTitle, showTitle, stripBrowserSuffix, titleShape } from "../src/screen/sites.js";
 import { explain, createProbe, PICK_SOURCE, ensureNative, compileHelp } from "../src/screen/probe.js";
 import { shapeDump, maskNodes } from "../src/screen/shape.js";
 import { extractTurns } from "../src/screen/turns.js";
@@ -775,13 +775,15 @@ test("screen log: every distinct look is recorded without any message text, and 
   assert.deepEqual(log.map((e) => e.skipped || e.tool), ["not_allowed", "claude", "claude"]);
   assert.deepEqual(log.map((e) => [e.seen, e.labels, e.rePrompts]), [[0, 0, 0], [2, 0, 0], [3, 1, 1]]);
   const raw = JSON.stringify(log);
-  assert.ok(!/Acme|revenue figure|Gmail|Inbox/.test(raw), "the log must not hold content or titles");
+  assert.ok(!/Acme|revenue figure|Inbox|Q3 summary/.test(raw), "the log must not hold message text or real titles");
   const r = await runCli(["screen", "log"], s.home, null);
   const rows = r.out.trim().split("\n");
-  assert.equal(rows.length, 3);
-  assert.match(rows[0], /the window in front was not an AI chat/);
-  assert.match(rows[1], /claude: 2 message\(s\) on screen, 0 new follow-up\(s\), 0 counted/);
-  assert.match(rows[2], /claude: 3 message\(s\) on screen, 1 new follow-up\(s\), 1 counted/);
+  assert.match(rows[0], /^Chat reading is ON\./);
+  assert.equal(rows.length, 1 + 1 + 3);                                  // header, the "is the app still running?" hint (the test clock is old), then three looks
+  assert.match(rows[1], /Is `node src\/cli.js app` still running/);
+  assert.match(rows[2], /the window in front was Google Chrome \(title pattern: Xxxxx - Gmail - Google Chrome - Xx\), which does not look like an AI chat/);
+  assert.match(rows[3], /claude: 2 message\(s\) on screen, 0 new follow-up\(s\), 0 counted/);
+  assert.match(rows[4], /claude: 3 message\(s\) on screen, 1 new follow-up\(s\), 1 counted/);
   const empty = await runCli(["screen", "log"], fs.mkdtempSync(path.join(os.tmpdir(), "ff-nolog-")), null);
   assert.match(empty.out, /Nothing logged yet/);
 });
@@ -792,4 +794,32 @@ test("a probe error shows up in the log with its reason", async () => {
   await a.tick();
   const r = await runCli(["screen", "log"], s.home, null);
   assert.match(r.out, /could not read the window: macOS has not allowed this/);
+});
+
+test("title pattern: AI tool, browser and common app names are kept, everything else is masked", () => {
+  assert.equal(titleShape("Chrome extension for correction tracking - Claude - Google Chrome - Charlotte (Person 1)"), "Chrome xxxxxxxxx xxx xxxxxxxxxx xxxxxxxx - Claude - Google Chrome - Xxxxxxxxx (Xxxxxx 9)");
+  assert.equal(titleShape("Q3 summary for Acme - Claude"), "x9 xxxxxxx xxx Xxxx - Claude");
+  assert.equal(titleShape("Inbox - Gmail - Google Chrome - Me"), "Xxxxx - Gmail - Google Chrome - Xx");
+  assert.equal(titleShape("Sierra AI Connection Follow-Up Draft - Google Gemini"), "Xxxxxx Xx Xxxxxxxxxx Xxxxxx-Xx Xxxxx - Google Gemini");
+  assert.equal(titleShape("\u200eSecret deal 2026"), "Xxxxxx xxxx 9999");
+  assert.ok(!/Secret|Acme|Sierra|correction/.test(titleShape("Secret Acme Sierra correction - Claude")));
+  assert.equal(titleShape("").length, 0);
+});
+
+test("screen log: an entry that stays the same for a while shows its whole span, and the header says on/off and how stale it is", async () => {
+  const s = setup(); const a = s.mk();
+  s.state.win = { app: "Terminal", title: "farfield-agent - node src/cli.js app - 80x24" };
+  await a.tick();
+  s.c.tick(90); await a.tick();                                            // still the same look, a minute and a half later
+  s.c.tick(90); await a.tick();
+  const log = (await a.storage.local.get("screenLog")).screenLog;
+  assert.equal(log.length, 1);
+  assert.ok(log[0].lastAt - log[0].at >= 150000);
+  const r = await runCli(["screen", "log"], s.home, null);
+  assert.match(r.out, /\d\d:\d\d:\d\d-\d\d:\d\d:\d\d  the window in front was Terminal/);
+  assert.match(r.out, /Is `node src\/cli.js app` still running/);
+  const cfg = loadConfig(s.home); cfg.screen = { ...cfg.screen, enabled: false }; saveConfig(s.home, cfg);
+  assert.match((await runCli(["screen", "log"], s.home, null)).out, /^Chat reading is OFF\./);
+  cfg.paused = true; cfg.screen.enabled = true; saveConfig(s.home, cfg);
+  assert.match((await runCli(["screen", "log"], s.home, null)).out, /^Chat reading is ON \(paused\)\./);
 });

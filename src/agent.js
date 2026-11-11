@@ -191,14 +191,17 @@ export function createAgent({ home, fetch: fetchImpl = globalThis.fetch, now = D
   // A one-line note of what the last look at the screen did (never any content), so "why is nothing showing up?" has an answer.
   async function rememberScreen(r) {
     if (!r || ["off", "too_soon", "paused"].includes(r.skipped)) return;
-    const next = { skipped: r.skipped || "", tool: r.tool || "", seen: r.seen || 0, rePrompts: r.rePrompts || 0, labels: r.labels || 0, error: r.error || "", engine: r.engine || "" };
+    const next = { skipped: r.skipped || "", tool: r.tool || "", seen: r.seen || 0, rePrompts: r.rePrompts || 0, labels: r.labels || 0, error: r.error || "", engine: r.engine || "", app: r.app || "", titleShape: r.titleShape || "" };
     const d = await storage.local.get(["screenLast", "screenLog"]);
     const prev = d.screenLast;
-    const same = prev && ["skipped", "tool", "seen", "rePrompts", "labels", "error"].every((k) => prev[k] === next[k]);
+    const same = prev && ["skipped", "tool", "seen", "rePrompts", "labels", "error", "app", "titleShape"].every((k) => (prev[k] || "") === (next[k] || ""));
     if (same && now() - (prev.at || 0) <= 60000) return;
-    // keeps the last 40 distinct looks: when, what, how many messages were on screen, how many were new, how many counted. Never any content.
-    const log = (Array.isArray(d.screenLog) ? d.screenLog : []).concat([{ ...next, at: now() }]).slice(-40);
-    await storage.local.set({ screenLast: { ...next, at: now() }, screenLog: same ? d.screenLog || [] : log });
+    // Keeps the last 40 distinct looks: when it started, when it was last seen the same, what it was (the front app, the shape of its title,
+    // how many messages were on screen, how many were new, how many counted). Never message text or a real title.
+    let log = Array.isArray(d.screenLog) ? d.screenLog.slice() : [];
+    if (same && log.length) log[log.length - 1] = { ...log[log.length - 1], lastAt: now() };
+    else log.push({ ...next, at: now(), lastAt: now() });
+    await storage.local.set({ screenLast: { ...next, at: now() }, screenLog: log.slice(-40) });
   }
 
   async function tick() {
