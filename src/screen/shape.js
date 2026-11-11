@@ -19,7 +19,7 @@ export function shapeDump(dump, { lines = 150 } = {}) {
   const roles = {};
   nodes.forEach((n) => { const k = (n.role || "?") + (n.sub ? "/" + n.sub : ""); roles[k] = (roles[k] || 0) + 1; });
   const out = [];
-  out.push(`app: ${dump && dump.win ? dump.win.app : "?"}   items: ${nodes.length}   engine: ${(dump && dump.engine) || "?"}`);
+  out.push(`app: ${dump && dump.win ? dump.win.app : (dump && dump.app) || "?"}   items: ${nodes.length}   engine: ${(dump && dump.engine) || "?"}`);
   out.push("kinds: " + Object.entries(roles).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => `${k} x${v}`).join(", "));
   out.push("");
   let shown = 0;

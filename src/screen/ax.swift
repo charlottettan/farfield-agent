@@ -25,6 +25,7 @@ struct Output: Encodable {
     var chosen: Int
     var app: String
     var title: String
+    var scope: String
     var accessibility: [String: String]
     var nodes: [Node]
 }
@@ -102,12 +103,35 @@ for (i, w) in windows.enumerated() {
 guard let win = best else { fail("The front app has no window to read.") }
 let title = str(attr(win, "AXTitle"))
 
+// Read only the web page itself, not the browser's tab bar, address bar or favourites (which would expose the title of every open tab).
+// A window with no web page in it (a desktop app) is read whole. "--scope window" reads the whole window anyway.
+var scopeWholeWindow = false
+if let i = args.firstIndex(of: "--scope"), i + 1 < args.count, args[i + 1] == "window" { scopeWholeWindow = true }
+
+func findWebArea(_ root: AXUIElement) -> AXUIElement? {
+    var queue: [(AXUIElement, Int)] = [(root, 0)]
+    var looked = 0
+    while !queue.isEmpty && looked < 4000 {
+        let (el, d) = queue.removeFirst()
+        looked += 1
+        if str(attr(el, "AXRole")) == "AXWebArea" { return el }
+        if d < 16, let kids = attr(el, "AXChildren") as? [AXUIElement] {
+            for k in kids { queue.append((k, d + 1)) }
+        }
+    }
+    return nil
+}
+
+var start = win
+var scope = "window"
+if !scopeWholeWindow, let web = findWebArea(win) { start = web; scope = "web" }
+
 let keep: Set<String> = ["AXWebArea", "AXHeading", "AXStaticText", "AXTextArea", "AXTextField", "AXList", "AXTable", "AXOutline", "AXScrollArea", "AXSplitGroup"]
 var nodes: [Node] = []
 var errors: [String] = []
 var visited = 0
 let deadline = Date().addingTimeInterval(Double(seconds))
-var stack: [(AXUIElement, Int)] = [(win, 0)]
+var stack: [(AXUIElement, Int)] = [(start, 0)]
 
 while let (el, d) = stack.popLast() {
     if visited >= maxNodes || Date() > deadline { break }
@@ -145,7 +169,7 @@ while let (el, d) = stack.popLast() {
 }
 
 let out = Output(engine: "native", visited: visited, errors: errors, windows: windows.count, chosen: bestIndex,
-                 app: appName, title: title, accessibility: accessibility, nodes: nodes)
+                 app: appName, title: title, scope: scope, accessibility: accessibility, nodes: nodes)
 let encoder = JSONEncoder()
 guard let data = try? encoder.encode(out), let json = String(data: data, encoding: .utf8) else { fail("Could not write the result.") }
 print(json)

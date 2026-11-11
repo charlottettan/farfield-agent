@@ -228,7 +228,7 @@ test("macOS reader: the slow reader is the default, the experimental fast one on
     const script = args[args.length - 1]; calls.push(script.includes("AXUIElementCopyAttributeValue") ? "fast" : "slow");
     return { nodes: [{ role: "AXStaticText", text: "hi" }] };
   });
-  let r = await probe.tree({});
+  let r = await probe.tree({ engine: "slow" });
   assert.deepEqual(calls.splice(0), ["slow"]); assert.equal(r.engine, "events");
   await probe.tree({ engine: "fast" });
   assert.deepEqual(calls.splice(0), ["fast"]);
@@ -236,7 +236,7 @@ test("macOS reader: the slow reader is the default, the experimental fast one on
 
 test("macOS reader: reads content properties, never the role description, and records depth", async () => {
   let script = "";
-  await createProbe("darwin", async (cmd, args) => { script = args[args.length - 1]; return { nodes: [] }; }).tree({});
+  await createProbe("darwin", async (cmd, args) => { script = args[args.length - 1]; return { nodes: [] }; }).tree({ engine: "slow" });
   assert.ok(script.includes('"accessibilityDescription"'));
   assert.ok(!/\[\s*"value",\s*"title",\s*"description"/.test(script));
   assert.ok(script.includes("depth: depth"));
@@ -281,10 +281,10 @@ test("macOS reader: asking the app to build its accessibility tree is a separate
     const sc = args[args.length - 1]; scripts.push(sc);
     return sc.includes("AXManualAccessibility") ? { attributes: { AXManualAccessibility: "set", AXEnhancedUserInterface: "failed: nope" } } : { visited: 3, nodes: [] };
   }, async (ms) => { waits.push(ms); });
-  const plain = await probe.tree({});
+  const plain = await probe.tree({ engine: "slow" });
   assert.equal(scripts.length, 1); assert.ok(!scripts[0].includes("AXManualAccessibility")); assert.equal(plain.accessibility, undefined);
   scripts.length = 0;
-  const asked = await probe.tree({ enableAccessibility: true });
+  const asked = await probe.tree({ engine: "slow", enableAccessibility: true });
   assert.equal(scripts.length, 2);
   assert.ok(scripts[0].includes("AXManualAccessibility") && scripts[0].includes("AXEnhancedUserInterface"));
   assert.ok(!scripts[1].includes("AXManualAccessibility"));         // the reading script does not touch the app's settings
@@ -299,7 +299,7 @@ test("every macOS script Farfield sends is at least valid JavaScript (they canno
   const scripts = [];
   const probe = createProbe("darwin", async (cmd, args) => { scripts.push(args[args.length - 1]); return { attributes: {}, visited: 0, nodes: [], windows: 1, top: 1, app: "x", title: "y" }; }, async () => {});
   await probe.title(); await probe.check();
-  await probe.tree({}); await probe.tree({ enableAccessibility: true }); await probe.tree({ engine: "fast" });
+  await probe.tree({ engine: "slow" }); await probe.tree({ engine: "slow", enableAccessibility: true }); await probe.tree({ engine: "fast" });
   assert.equal(scripts.length, 6);
   scripts.forEach((s, i) => { assert.doesNotThrow(() => new vm.Script(s), `script ${i} does not parse`); });
 });
@@ -380,7 +380,7 @@ test("window choice: skips an untitled, empty helper window and picks the real o
 test("all three macOS window scripts use the window chooser, not the first window", async () => {
   const scripts = [];
   const probe = createProbe("darwin", async (cmd, args) => { scripts.push(args[args.length - 1]); return { windows: 1, chosen: 0, top: 1, candidates: [], visited: 0, nodes: [], app: "x", title: "y" }; }, async () => {});
-  await probe.title(); await probe.check(); await probe.tree({});
+  await probe.title(); await probe.check(); await probe.tree({ engine: "slow" });
   assert.equal(scripts.length, 3);
   scripts.forEach((s) => { assert.ok(s.includes("function pickWindow")); assert.ok(!/windows\[0\]/.test(s), "still reads the first window"); });
 });
@@ -399,7 +399,7 @@ test("real titles seen so far: Safari shows 'Google Gemini', and look-alike titl
 
 test("the reading script keeps the top of the structure and records the window's errors", async () => {
   let script = "";
-  await createProbe("darwin", async (cmd, args) => { script = args[args.length - 1]; return { nodes: [] }; }).tree({});
+  await createProbe("darwin", async (cmd, args) => { script = args[args.length - 1]; return { nodes: [] }; }).tree({ engine: "slow" });
   assert.ok(script.includes("depth <= 3"));
   assert.ok(script.includes("errs.push"));
   assert.ok(script.includes("errors: errs"));
@@ -600,4 +600,79 @@ test("SDK shortcuts that point at an SDK already refused or tried are skipped (t
   const bin = await ensureNative({ binDir: path.join(dir, "b2"), compile: compile265, source: src, sdkDir });
   assert.ok(fs.existsSync(bin));
   assert.deepEqual(calls, ["default", "MacOSX26.5.sdk"]);                                          // stops at the first that works
+});
+
+test("auto engine: the native reader first, the slow one if it cannot be built, and never a fallback for a permission problem or a timeout", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ff-auto-"));
+  const src = path.join(dir, "ax.swift"); fs.writeFileSync(src, "// auto");
+  const fsApi = { ...fs, readFileSync: (p, e) => (String(p).endsWith("ax.swift") ? "// auto" : fs.readFileSync(p, e)) };
+  const ran = [];
+  const mk = (compile, nativeResult) => createProbe("darwin", async (cmd, args) => {
+    ran.push(cmd.includes("farfield-ax") ? "native" : "slow");
+    if (cmd.includes("farfield-ax")) { if (nativeResult instanceof Error) throw nativeResult; return nativeResult || { engine: "native", visited: 5, nodes: [] }; }
+    return { visited: 1, nodes: [] };
+  }, async () => {}, { binDir: path.join(dir, "bin" + Math.random().toString(36).slice(2)), compile, fsApi });
+  const ok = async (c, a) => { fs.writeFileSync(a[a.indexOf("-o") + 1], "bin"); };
+  let r = await mk(ok).tree({});
+  assert.equal(r.engine, "native"); assert.deepEqual(ran.splice(0), ["native"]);
+  // Swift cannot be built here: fall back to the slow reader and say why
+  r = await mk(async () => { throw Object.assign(new Error("spawn swiftc ENOENT"), { code: "ENOENT" }); }).tree({});
+  assert.equal(r.engine, "events"); assert.match(r.fellBack, /Swift was not found/); assert.deepEqual(ran.splice(0), ["slow"]);
+  // a permission problem or a timeout is not something the slow reader can fix
+  await assert.rejects(mk(ok, new Error("macOS has not allowed this. Open System Settings > Privacy & Security > Accessibility")).tree({}), /Accessibility/);
+  assert.deepEqual(ran.splice(0), ["native"]);
+  await assert.rejects(mk(ok, new Error("It took longer than 30 seconds and was stopped.")).tree({}), /longer than/);
+  ran.length = 0;
+  // asking for the slow reader, by name, never touches Swift
+  r = await mk(async () => { throw new Error("must not compile"); }).tree({ engine: "slow" });
+  assert.equal(r.engine, "events"); assert.deepEqual(ran.splice(0), ["slow"]);
+});
+
+test("the watcher never compiles in the middle of its loop: an unbuilt native reader falls back to the slow one until 'screen build' is run", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ff-nobuild-"));
+  const compiled = []; const ran = [];
+  const probe = createProbe("darwin", async (cmd) => { ran.push(cmd.includes("farfield-ax") ? "native" : "slow"); return { visited: 1, nodes: [] }; }, async () => {},
+    { binDir: path.join(dir, "bin"), compile: async () => { compiled.push(1); } });
+  const r = await probe.tree({ engine: "auto", build: false });
+  assert.equal(compiled.length, 0);                                   // no compile was started
+  assert.deepEqual(ran, ["slow"]);
+  assert.match(r.fellBack, /not been built yet.*screen build/);
+  await assert.rejects(ensureNative({ binDir: path.join(dir, "bin2"), build: false, compile: async () => { compiled.push(1); } }), /screen build/);
+  assert.equal(compiled.length, 0);
+});
+
+test("the screen step asks for a read without building, and reads in a size and time that suit a loop", async () => {
+  const s = setup(); const asked = [];
+  s.probe.tree = async (o) => { asked.push(o); return { nodes: first }; };
+  const a = s.mk();
+  await a.tick();
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].build, false);
+  assert.equal(asked[0].engine, "auto");
+  assert.ok(asked[0].timeoutMs <= 30000 && asked[0].maxNodes >= 2000);
+});
+
+test("screen dump reads the web page only by default, the whole window only when asked", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ff-scope-"));
+  const asked = [];
+  const probe = { title: async () => ({ app: "Safari", title: "x - Google Gemini" }), check: async () => ({}), tree: async (o) => { asked.push(o); return { engine: "native", visited: 1, nodes: [] }; } };
+  await runCli(["screen", "dump"], home, probe);
+  await runCli(["screen", "dump", "--scope", "window"], home, probe);
+  assert.deepEqual(asked.map((o) => o.scope), ["web", "window"]);
+});
+
+test("screen build compiles the native reader once and says where it is", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ff-build-"));
+  let got;
+  const lines = []; const orig = process.stdout.write.bind(process.stdout); process.stdout.write = (c) => { lines.push(String(c)); return true; };
+  try { await cli(["screen", "build"], { FARFIELD_HOME: home }, { ensureNative: async (o) => { got = o; return "/x/farfield-ax-abc123"; } }); } finally { process.stdout.write = orig; }
+  assert.equal(got.binDir, path.join(home, "bin"));
+  assert.match(lines.join(""), /Ready: \/x\/farfield-ax-abc123/);
+});
+
+test("the Swift reader is limited to the web page unless told otherwise (checked in the source, since it cannot be run here)", () => {
+  const src = fs.readFileSync(new URL("../src/screen/ax.swift", import.meta.url), "utf8");
+  for (const needle of ['"--scope"', "findWebArea", 'scope = "web"', "scopeWholeWindow", "var scope: String"]) assert.ok(src.includes(needle), needle);
+  assert.ok(/\[\(start, 0\)\]/.test(src), "the walk must start from the chosen start element, not the whole window");
+  assert.ok(!/\[\(win, 0\)\]/.test(src), "the walk must not start from the whole window");
 });

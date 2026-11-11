@@ -30,6 +30,7 @@ Key: **Built** (in code and tested) · **Partly** · **Not built** · **You** (a
 - **Saved window dumps used to include the raw text on screen.** They now save structure only (long text reduced to a length and a letter pattern) unless `--keep-text` is given, and `screen forget` deletes them.
 - **The local app page** is protected against other websites (tested in Chromium) but has not been tested in Safari or Edge.
 
+- **The native reader now reads only the web page of a browser window,** not the tab bar, address bar or favourites, so other tabs' titles are not read. The window's own title (the active tab) is still read to decide whether to read it at all. Desktop apps with no web page are still read whole.
 - **The native reader is a compiled program on the employee's computer.** For a pilot it would need to be signed and notarized by Apple, and IT will ask what it can do. It cannot take screenshots, send keystrokes, or click (a test checks the source for those calls), but that is a check of the source, not a review of the compiled program.
 
 ## What a bank will ask for beyond this list

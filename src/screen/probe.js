@@ -200,7 +200,7 @@ let top = 0; try { top = pick.window ? pick.window.uiElements.length : 0; } catc
 JSON.stringify({ windows: pick.count, chosen: pick.index, top: top, candidates: pick.info });
 `;
 
-// opts for tree(): { maxNodes, timeoutMs, engine: "slow" (default) | "native" (Swift, experimental) | "fast" (failed on a real Mac) }.
+// opts for tree(): { maxNodes, timeoutMs, enableAccessibility, scope, build, engine: "auto" (default: native, else slow) | "native" | "slow" | "fast" (failed on a real Mac) }.
 // ---- The native macOS reader (src/screen/ax.swift): calls the Accessibility API directly, like a screen reader does.
 // It is compiled once with the Swift compiler that comes with Apple's command line tools, then reused.
 // STATUS: never compiled or run. Compile errors are returned in full so they can be fixed.
@@ -234,10 +234,11 @@ export function compileHelp(e) {
   return head + (errors.length ? "\nThe compiler's errors:\n" + errors.join("\n") : "\n" + full.slice(0, 600));
 }
 
-export async function ensureNative({ binDir, compile = runRaw, fsApi = fs, source = AX_SOURCE, sdkDir = SDK_DIR } = {}) {
+export async function ensureNative({ binDir, compile = runRaw, fsApi = fs, source = AX_SOURCE, sdkDir = SDK_DIR, build = true } = {}) {
   const hash = crypto.createHash("sha256").update(fsApi.readFileSync(source)).digest("hex").slice(0, 12);
   const bin = path.join(binDir, "farfield-ax-" + hash);          // a changed source gives a new name, so it is recompiled
   if (fsApi.existsSync(bin)) return bin;
+  if (build === false) throw new Error("The native reader has not been built yet. Run: node src/cli.js screen build");
   fsApi.mkdirSync(binDir, { recursive: true });
   const args = (sdk) => [...(sdk ? ["-sdk", path.join(sdkDir, sdk)] : []), "-O", "-o", bin, source];
   let failure;
@@ -272,6 +273,23 @@ export function createProbe(platform = process.platform, runner = run, sleep = s
   if (platform === "darwin") {
     const slow = (o) => runner("osascript", ["-l", "JavaScript", "-e", macTree(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000).then((r) => ({ engine: "events", ...r }));
     const fast = (o) => runner("osascript", ["-l", "JavaScript", "-e", macTreeFast(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000);
+    const native = async (o) => {
+      const bin = await ensureNative({ binDir, compile: extra.compile, fsApi: extra.fsApi, build: o.build !== false });
+      const args = ["--max", String(o.maxNodes || 2000), "--seconds", String(Math.max(5, Math.round((o.timeoutMs || 60000) / 1000) - 10))];
+      if (o.enableAccessibility === true) args.push("--enable");
+      if (o.scope === "window") args.push("--scope", "window");
+      return runner(bin, args, o.timeoutMs || 60000);
+    };
+    const slowRead = async (o) => {
+      let accessibility;
+      if (o.enableAccessibility === true) {
+        const r = await runner("osascript", ["-l", "JavaScript", "-e", MAC_ENABLE], 15000);
+        accessibility = r.attributes;
+        await sleep(o.settleMs === undefined ? 3000 : o.settleMs);      // give the app time to build its tree
+      }
+      const out = await slow(o);
+      return accessibility ? { ...out, accessibility } : out;
+    };
     return {
       title: () => runner("osascript", ["-l", "JavaScript", "-e", MAC_TITLE], 8000),
       check: () => runner("osascript", ["-l", "JavaScript", "-e", MAC_CHECK], 15000),
@@ -279,20 +297,15 @@ export function createProbe(platform = process.platform, runner = run, sleep = s
         const engine = o.engine || "auto";
         // The fast reader failed on the first real Mac it ran on ("Ref has incompatible type"), so it is opt-in only.
         if (engine === "fast") return fast(o);
-        if (engine === "native") {
-          const bin = await ensureNative({ binDir, compile: extra.compile, fsApi: extra.fsApi });
-          const args = ["--max", String(o.maxNodes || 2000), "--seconds", String(Math.max(5, Math.round((o.timeoutMs || 60000) / 1000) - 10))];
-          if (o.enableAccessibility === true) args.push("--enable");
-          return runner(bin, args, o.timeoutMs || 60000);
+        if (engine === "slow") return slowRead(o);
+        if (engine === "native") return native(o);
+        // auto: the native reader (it read a real Gemini conversation), falling back to the slow one if it cannot be built.
+        try { return await native(o); }
+        catch (e) {
+          if (/Accessibility|Automation|longer than/.test(String(e.message))) throw e;      // a fallback cannot fix these
+          const r = await slowRead(o);
+          return { ...r, fellBack: String(e.message).split("\n")[0].slice(0, 200) };
         }
-        let accessibility;
-        if (o.enableAccessibility === true) {
-          const r = await runner("osascript", ["-l", "JavaScript", "-e", MAC_ENABLE], 15000);
-          accessibility = r.attributes;
-          await sleep(o.settleMs === undefined ? 3000 : o.settleMs);      // give the app time to build its tree
-        }
-        const out = await slow(o);
-        return accessibility ? { ...out, accessibility } : out;
       },
     };
   }

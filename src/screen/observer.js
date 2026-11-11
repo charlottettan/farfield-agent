@@ -42,7 +42,7 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
   // snapshot: { nodes: [...] }   tool: { id, name } from identify()
   function feed(snapshot, tool) {
     const t = now();
-    const { turns } = extractTurns(snapshot);
+    const { turns } = extractTurns(snapshot, tool);
     const out = { rePrompts: [], sessions: [], labels: [] };
     if (!turns.length) return out;
     const keys = keysOf(turns);

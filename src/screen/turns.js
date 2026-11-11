@@ -5,11 +5,18 @@ const COMPOSER_ROLE = /textarea|textbox|text field|textfield|edit$|^edit|combo/i
 const USER_CUE = /^(you|you said|you:|me|me:|user|you wrote)\s*:?$/i;
 const ASSISTANT_CUE = /^(chatgpt|claude|gemini|copilot|assistant)(\s+(said|responded|replied|wrote))?\s*:?$/i;
 const MAX_TURN = 20000;
+import { ADAPTERS } from "./adapters/index.js";
 
 const norm = (s) => String(s || "").replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 
-export function extractTurns(snapshot) {
+export function extractTurns(snapshot, tool) {
   const nodes = Array.isArray(snapshot && snapshot.nodes) ? snapshot.nodes : [];
+  // A reader written for this site's page structure is used first, when the page structure was captured.
+  if (tool && ADAPTERS[tool.id]) {
+    const r = ADAPTERS[tool.id](nodes);
+    const turns = r ? r.turns.map((t) => ({ role: t.role, text: norm(t.text).slice(0, MAX_TURN) })).filter((t) => t.text) : [];
+    if (turns.some((t) => t.role === "user")) return { turns, composer: r.composer || "", basis: "adapter:" + tool.id };
+  }
   let composer = "";
   const items = [];
   for (const n of nodes) {

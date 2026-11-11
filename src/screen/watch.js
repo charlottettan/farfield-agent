@@ -25,7 +25,7 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
       const tool = identify(win, sc.tools);
       if (!tool) return { skipped: "not_allowed" };            // the window's content is never requested
       let snapshot;
-      try { snapshot = await probe.tree(); } catch (e) { return { skipped: "probe_error", error: String((e && e.message) || e).slice(0, 200) }; }
+      try { snapshot = await probe.tree({ engine: sc.engine || "auto", build: false, maxNodes: 3000, timeoutMs: 30000 }); } catch (e) { return { skipped: "probe_error", error: String((e && e.message) || e).slice(0, 200) }; }
       const mode = sc.storeMode === "full" || sc.storeMode === "off" ? sc.storeMode : "redacted";
       if (!observer || observerMode !== mode) { observer = createObserver({ now, mode }); observerMode = mode; }
       const res = observer.feed(snapshot, tool);

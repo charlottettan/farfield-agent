@@ -6,7 +6,7 @@ import { homeDir, loadConfig, saveConfig } from "./config.js";
 import { createAgent } from "./agent.js";
 import fs from "node:fs";
 import { startApp } from "./app.js";
-import { createProbe } from "./screen/probe.js";
+import { createProbe, ensureNative } from "./screen/probe.js";
 import { identify, showTitle } from "./screen/sites.js";
 import { extractTurns } from "./screen/turns.js";
 import { shapeDump, maskNodes } from "./screen/shape.js";
@@ -25,7 +25,8 @@ const USAGE = `Farfield desktop agent
   farfield-agent leave [--delete-data]  Leave the company (optionally delete what was sent)
   farfield-agent screen on --agree      Also read AI chat windows (ChatGPT, Claude, Gemini, Copilot) to catch re-prompts
   farfield-agent screen off
-  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine native|slow] [--enable-accessibility] [--keep-text]   Save the structure of one chat window (text only with --keep-text; test chat only)
+  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine native|slow] [--scope window] [--enable-accessibility] [--keep-text]   Save the structure of one chat window (text only with --keep-text; test chat only)
+  farfield-agent screen build           Compile the native Mac reader once (needed before screen on works at full speed)
   farfield-agent screen forget          Delete every saved window dump
   farfield-agent screen shape [file]    Print the saved window's structure without its long text, safe to share after you read it
   farfield-agent where                  Show where its files live on this computer
@@ -83,7 +84,7 @@ export async function main(argv, env = process.env, deps = {}) {
       say("Farfield will read the text of an AI chat window (ChatGPT, Claude, Gemini or Copilot) only while that window is in front.");
       say("Any other window is never read. It does not take screenshots, record keystrokes, or keep unsent text.");
       say("What it keeps: the follow-up messages you send, shown in the mode below, and counts per task. Mode: " + ((cfg.screen && cfg.screen.storeMode) || "redacted") + " (names, numbers and emails masked).");
-      if (process.platform === "darwin") say("On a Mac you will also need to allow Terminal under System Settings > Privacy & Security > Accessibility.");
+      if (process.platform === "darwin") say("On a Mac you will also need to allow Terminal under System Settings > Privacy & Security > Accessibility, and run `screen build` once so reading is fast.");
       if (!flags.agree) { say("\nRun the same command with --agree to turn it on."); return 0; }
       cfg.screen = { ...(cfg.screen || {}), enabled: true }; saveConfig(home, cfg); say("Chat reading is on."); return 0;
     }
@@ -108,7 +109,7 @@ export async function main(argv, env = process.env, deps = {}) {
       const started = Date.now();
       let tree;
       if (flags["enable-accessibility"]) say("Asking the app to build its accessibility tree, as VoiceOver would. It stays on in that app until you quit it and can use more memory there. Waiting a few seconds for it.");
-      try { tree = await probe.tree({ maxNodes, timeoutMs, engine: flags.engine || "auto", enableAccessibility: flags["enable-accessibility"] === true }); }
+      try { tree = await probe.tree({ maxNodes, timeoutMs, engine: flags.engine || "auto", enableAccessibility: flags["enable-accessibility"] === true, scope: flags.scope === "window" ? "window" : "web" }); }
       catch (e) { say("Could not read the window: " + e.message); return 1; }
       say(`Read took ${((Date.now() - started) / 1000).toFixed(1)} seconds, using the ${tree.engine || "default"} reader${tree.fellBack ? " (the fast one failed: " + tree.fellBack + ")" : ""}.`);
       if (tree.accessibility) say("What macOS accepted when asked to build the tree: " + Object.entries(tree.accessibility).map(([k, v]) => `${k}: ${v}`).join("; "));
@@ -121,11 +122,17 @@ export async function main(argv, env = process.env, deps = {}) {
       const keep = flags["keep-text"] === true;
       fs.writeFileSync(file, JSON.stringify({ capturedAt: new Date().toISOString(), platform: process.platform, engine: tree.engine, visited: tree.visited, errors: tree.errors, accessibility: tree.accessibility, enableAccessibility: flags["enable-accessibility"] === true, masked: !keep, win, nodes: keep ? nodes : maskNodes(nodes) }, null, 2), { mode: 0o600 });
       const roles = {}; nodes.forEach((n) => { roles[n.role] = (roles[n.role] || 0) + 1; });
-      const t = extractTurns({ nodes });
+      const t = extractTurns({ nodes }, tool);
       say(`Read ${nodes.length} pieces of text. Most common kinds: ` + Object.entries(roles).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} x${v}`).join(", "));
       say(`Farfield found ${t.turns.length} messages (${t.turns.filter((x) => x.role === "user").length} from you, ${t.turns.filter((x) => x.role === "assistant").length} from the AI), by ${t.basis}.`);
       if (keep) t.turns.slice(0, 8).forEach((x) => say(`  ${x.role}: ${x.text.slice(0, 70).replace(/\n/g, " ")}`));
       say(keep ? "Saved to " + file + " WITH the text that was on the window. Look through it before sharing it, and delete it when done (screen forget)." : "Saved to " + file + ". Only the structure was saved: long text is reduced to a length and a letter pattern.");
+      return 0;
+    }
+    if (sub === "build") {
+      say("Compiling the native reader with Swift. The first time can take a few minutes.");
+      const bin = await (deps.ensureNative || ensureNative)({ binDir: path.join(home, "bin") });
+      say("Ready: " + bin);
       return 0;
     }
     if (sub === "forget") {
@@ -145,7 +152,7 @@ export async function main(argv, env = process.env, deps = {}) {
       say("\nThis shows labels and structure, not long text. Read it through before you share it.");
       return 0;
     }
-    say("Use: screen on --agree | screen off | screen dump | screen shape [file] | screen forget"); return 1;
+    say("Use: screen on --agree | screen off | screen dump | screen build | screen shape [file] | screen forget"); return 1;
   }
 
   if (cmd === "app") {
