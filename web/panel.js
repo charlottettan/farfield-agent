@@ -46,11 +46,23 @@
       ul.appendChild(el("li", r.file + " (" + r.surface + "): " + r.changedCells + " changed" + (r.changedCells === 1 ? " item" : " items")));
     });
 
+    $("screenLine").textContent = screenText(s.screen);
     drawCompany(s);
     var co = s.company || {};
     $("collectText").textContent = co.joined
       ? "Privacy mode for " + co.org.name + ": " + mode(co.policy.privacyMode)
       : "You have not joined a company, so nothing leaves this computer.";
+  }
+
+  function screenText(sc) {
+    if (!sc || !sc.enabled) return "Chat reading is off. Re-prompts typed into ChatGPT, Claude, Gemini or Copilot are not being read by this app.";
+    var l = sc.last;
+    if (!l) return "Chat reading is on. Nothing has been looked at yet.";
+    if (l.skipped === "not_allowed") return "Chat reading is on. The window in front is not an AI chat, so nothing was read.";
+    if (l.skipped === "probe_error") return "Chat reading is on but could not read the window: " + (l.error || "unknown problem");
+    if (l.skipped) return "Chat reading is on. Last look skipped: " + l.skipped + ".";
+    if (!l.labels && !l.rePrompts) return "Chat reading is on. Last look: found an AI chat (" + l.tool + ") but no new follow-up messages.";
+    return "Chat reading is on. Last look: " + l.tool + ", " + l.labels + " new follow-up message(s), " + l.rePrompts + " counted as corrections.";
   }
 
   function drawCompany(s) {

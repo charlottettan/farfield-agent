@@ -1,4 +1,4 @@
-# Farfield desktop agent (v0.3.1, prototype)
+# Farfield desktop agent (v0.3.2, prototype)
 
 Watches the folders you choose for new Excel, Word and PowerPoint files. When a new file appears, it keeps a private
 copy as the "AI version". When the file is later saved with changes, it records what changed. If you have joined a
@@ -35,6 +35,7 @@ What it produces: the same records as the browser extension. Each task in a chat
 - Verified here (56 tests): which windows are allowed, extracting who said what from labelled text, ignoring unsent drafts, splitting one chat into tasks, not double-counting, redaction, and never reading a window that is not allowed.
 - **Not verified: the part that talks to macOS and Windows** (`src/screen/probe.js`). It was written from the platform documentation and has never run on a real machine. Chrome may only expose page text when its accessibility support is on (`chrome://accessibility`).
 - **Not verified: that real ChatGPT, Claude, Gemini or Copilot pages show "You" and the tool's name as labels.** The turn reader depends on that. If a page does not, it finds nothing rather than guessing.
+- **First real result (a Mac, the Gemini app):** the window title and permission checks worked. The first, slow reader took 38 seconds for about 800 items and found only a sidebar of chats and buttons: no "You" or "Gemini" labels, so 0 messages. A faster native reader is in 0.3.2 but has not run on a real Mac yet. `screen shape` prints a window's structure without its long text so it can be shared safely.
 - **Step one on a real machine:** open a test chat (nothing private) and run `node src/cli.js screen dump --delay 5`, then switch to the chat window. It saves what Farfield can see to `dumps/` and prints what it understood. Send that file and the fitting can be done properly.
 
 **How it tells a correction from a new request.** See `src/screen/classify.js`. It is a scoring rule that gives reasons for every decision, not a model. On made-up finance chats it scored 33 of 33 on the set it was tuned on, which means nothing, and 12 of 16 on a second set written afterwards, finding 3 of 6 real corrections and wrongly flagging none. It misses corrections that do not reuse the AI's words (for example "Too many acronyms, spell them out"), so rework is more likely to be under-counted than over-counted. Real accuracy is unknown until it is checked on real, labelled chats.

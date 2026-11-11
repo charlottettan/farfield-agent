@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { identify } from "../src/screen/sites.js";
-import { explain } from "../src/screen/probe.js";
+import { explain, createProbe } from "../src/screen/probe.js";
+import { shapeDump } from "../src/screen/shape.js";
 import { extractTurns } from "../src/screen/turns.js";
 import { createObserver } from "../src/screen/observer.js";
 import { createScreenStep } from "../src/screen/watch.js";
@@ -203,4 +204,54 @@ test("probe errors say what happened and never include the script", () => {
   const other = explain({ message: "Command failed: osascript -e SCRIPT\nsomething odd happened" }, "", 1000);
   assert.ok(!/SCRIPT/.test(other));
   assert.match(other, /something odd/);
+});
+
+test("the status says what the last look at the screen did, without any content", async () => {
+  const s = setup(); const a = s.mk();
+  s.state.win = { app: "Google Chrome", title: "Inbox - Gmail" };
+  await a.tick();
+  let st = await a.status();
+  assert.equal(st.screen.enabled, true);
+  assert.equal(st.screen.last.skipped, "not_allowed");
+  s.c.tick(30); s.state.win = { app: "Google Chrome", title: "Q3 summary - Claude" }; s.state.nodes = first;
+  await a.tick();
+  st = await a.status();
+  assert.equal(st.screen.last.tool, "claude");
+  assert.ok(!JSON.stringify(st.screen).includes("Acme"));
+});
+
+test("macOS reader: falls back to the slow one on an odd failure, but not on a permission problem or a timeout", async () => {
+  const calls = [];
+  const mk = (failFast) => createProbe("darwin", async (cmd, args) => {
+    const script = args[args.length - 1]; const fast = script.includes("AXUIElementCopyAttributeValue");
+    calls.push(fast ? "fast" : "slow");
+    if (fast && failFast) throw new Error(failFast);
+    return { nodes: [{ role: "AXStaticText", text: "hi" }] };
+  });
+  let r = await mk("ObjC is unhappy").tree({});
+  assert.deepEqual(calls.splice(0), ["fast", "slow"]);
+  assert.equal(r.engine, "events"); assert.match(r.fellBack, /ObjC is unhappy/);
+  await assert.rejects(mk("macOS has not allowed this. Open System Settings > Privacy & Security > Accessibility").tree({}), /Accessibility/);
+  assert.deepEqual(calls.splice(0), ["fast"]);
+  await assert.rejects(mk("It took longer than 40 seconds and was stopped.").tree({}), /longer than/);
+  assert.deepEqual(calls.splice(0), ["fast"]);
+  r = await mk(null).tree({ engine: "slow" });
+  assert.deepEqual(calls.splice(0), ["slow"]);
+});
+
+test("shape: shows structure and short labels, never long text", () => {
+  const dump = { win: { app: "Gemini" }, engine: "native", nodes: [
+    { role: "AXGroup", sub: "", depth: 2, text: "" },
+    { role: "AXStaticText", depth: 3, text: "You" },
+    { role: "AXStaticText", depth: 4, text: "Quarterly revenue for Pinecone rose 12% on strong bond desk results" },
+    { role: "AXButton", depth: 4, text: "Copy" },
+  ] };
+  const out = shapeDump(dump);
+  assert.match(out, /AXStaticText "You"/);
+  assert.match(out, /AXButton "Copy"/);
+  assert.ok(!/Pinecone|revenue|bond/.test(out));
+  const long = "Quarterly revenue for Pinecone rose 12% on strong bond desk results";
+  assert.ok(out.includes(`len=${long.length} Xxxxxxxxx xxxxxxx`));
+  assert.match(out, /engine: native/);
+  assert.ok(shapeDump({ nodes: Array.from({ length: 500 }, () => ({ role: "AXRow", text: "" })) }, { lines: 20 }).includes("more items not shown"));
 });

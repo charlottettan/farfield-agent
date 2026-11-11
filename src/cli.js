@@ -9,6 +9,7 @@ import { startApp } from "./app.js";
 import { createProbe } from "./screen/probe.js";
 import { identify } from "./screen/sites.js";
 import { extractTurns } from "./screen/turns.js";
+import { shapeDump } from "./screen/shape.js";
 
 const USAGE = `Farfield desktop agent
 
@@ -24,7 +25,8 @@ const USAGE = `Farfield desktop agent
   farfield-agent leave [--delete-data]  Leave the company (optionally delete what was sent)
   farfield-agent screen on --agree      Also read AI chat windows (ChatGPT, Claude, Gemini, Copilot) to catch re-prompts
   farfield-agent screen off
-  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60]   Save what one chat window looks like to Farfield (test chat only)
+  farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine fast|slow]   Save what one chat window looks like to Farfield (test chat only)
+  farfield-agent screen shape [file]    Print the saved window's structure without its long text, safe to share after you read it
   farfield-agent where                  Show where its files live on this computer
 `;
 
@@ -100,13 +102,13 @@ export async function main(argv, env = process.env) {
       say(`Reading up to ${maxNodes} items (limit ${timeoutMs / 1000} seconds). Larger windows are slow on a Mac.`);
       const started = Date.now();
       let tree;
-      try { tree = await probe.tree({ maxNodes, timeoutMs }); }
+      try { tree = await probe.tree({ maxNodes, timeoutMs, engine: flags.engine || "auto" }); }
       catch (e) { say("Could not read the window: " + e.message); return 1; }
-      say(`Read took ${((Date.now() - started) / 1000).toFixed(1)} seconds.`);
+      say(`Read took ${((Date.now() - started) / 1000).toFixed(1)} seconds, using the ${tree.engine || "default"} reader${tree.fellBack ? " (the fast one failed: " + tree.fellBack + ")" : ""}.`);
       const nodes = Array.isArray(tree.nodes) ? tree.nodes : [];
       const dir = path.join(home, "dumps"); fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, "dump-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json");
-      fs.writeFileSync(file, JSON.stringify({ capturedAt: new Date().toISOString(), platform: process.platform, win, nodes }, null, 2), { mode: 0o600 });
+      fs.writeFileSync(file, JSON.stringify({ capturedAt: new Date().toISOString(), platform: process.platform, engine: tree.engine, win, nodes }, null, 2), { mode: 0o600 });
       const roles = {}; nodes.forEach((n) => { roles[n.role] = (roles[n.role] || 0) + 1; });
       const t = extractTurns({ nodes });
       say(`Read ${nodes.length} pieces of text. Most common kinds: ` + Object.entries(roles).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} x${v}`).join(", "));
@@ -115,7 +117,17 @@ export async function main(argv, env = process.env) {
       say("Saved to " + file + ". Look through it before sharing it with anyone: it contains what was on that window.");
       return 0;
     }
-    say("Use: screen on --agree | screen off | screen dump"); return 1;
+    if (sub === "shape") {
+      const dir = path.join(home, "dumps");
+      let file = pos[2];
+      if (!file) { const all = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort() : []; if (!all.length) { say("No saved dump yet. Run: screen dump --delay 5"); return 1; } file = path.join(dir, all[all.length - 1]); }
+      const text = shapeDump(JSON.parse(fs.readFileSync(file, "utf8")), { lines: Number(flags.lines || 150) });
+      fs.writeFileSync(file.replace(/\.json$/, ".shape.txt"), text, { mode: 0o600 });
+      say(text);
+      say("\nThis shows labels and structure, not long text. Read it through before you share it.");
+      return 0;
+    }
+    say("Use: screen on --agree | screen off | screen dump | screen shape [file]"); return 1;
   }
 
   if (cmd === "app") {

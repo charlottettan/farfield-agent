@@ -105,26 +105,79 @@ function run(cmd, args, timeoutMs) {
 
 const ps = (script) => ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
 
+
+// Faster macOS reader: calls the Accessibility C functions directly instead of sending one Apple event per property,
+// which was taking ~40 seconds for a few hundred items. STATUS: not yet run on a real Mac. If it fails for any reason
+// other than a missing permission, createProbe() falls back to the slow reader.
+const macTreeFast = (MAX_NODES) => `
+ObjC.import("AppKit");
+ObjC.import("ApplicationServices");
+function attr(el, name) {
+  const ref = Ref();
+  const err = $.AXUIElementCopyAttributeValue(el, $(name), ref);
+  return err === 0 ? ref[0] : null;
+}
+function str(v) {
+  if (v === null || v === undefined) return "";
+  let u; try { u = ObjC.unwrap(v); } catch (e) { return ""; }
+  return typeof u === "string" ? u : "";
+}
+const pid = $.NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+const app = $.AXUIElementCreateApplication(pid);
+let win = attr(app, "AXFocusedWindow");
+if (!win) { const ws = attr(app, "AXWindows"); if (ws) { const a = ObjC.unwrap(ws); if (a.length) win = a[0]; } }
+const out = []; let visited = 0;
+if (win) {
+  const stack = [[win, 0]];
+  while (stack.length && visited < ${MAX_NODES}) {
+    const cur = stack.pop(); const el = cur[0], d = cur[1];
+    visited++;
+    const role = str(attr(el, "AXRole"));
+    const sub = str(attr(el, "AXSubrole"));
+    let text = str(attr(el, "AXValue")); if (!text) text = str(attr(el, "AXTitle")); if (!text) text = str(attr(el, "AXDescription"));
+    if (text || d <= 6) out.push({ role: role, sub: sub, depth: d, text: text });
+    if (d < ${MAX_DEPTH}) {
+      const kids = attr(el, "AXChildren");
+      if (kids) { const arr = ObjC.unwrap(kids); for (let i = arr.length - 1; i >= 0; i--) stack.push([arr[i], d + 1]); }
+    }
+  }
+}
+JSON.stringify({ engine: "native", visited: visited, nodes: out });
+`;
+
 const MAC_CHECK = `
 const se = Application("System Events");
 const p = se.processes.whose({ frontmost: true })[0];
 JSON.stringify({ windows: p.windows.length, top: p.windows[0].uiElements.length });
 `;
 
-// opts: { maxNodes, timeoutMs }. Smaller numbers are faster; macOS answers one question per element, so big windows are slow.
-export function createProbe(platform = process.platform) {
+// opts for tree(): { maxNodes, timeoutMs, engine: "auto" | "fast" | "slow" }.
+// "auto" tries the fast native reader and falls back to the slow one, unless the problem is a permission or a timeout.
+export function createProbe(platform = process.platform, runner = run) {
   if (platform === "darwin") {
+    const slow = (o) => runner("osascript", ["-l", "JavaScript", "-e", macTree(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000).then((r) => ({ engine: "events", ...r }));
+    const fast = (o) => runner("osascript", ["-l", "JavaScript", "-e", macTreeFast(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000);
     return {
-      title: () => run("osascript", ["-l", "JavaScript", "-e", MAC_TITLE], 8000),
-      check: () => run("osascript", ["-l", "JavaScript", "-e", MAC_CHECK], 15000),
-      tree: (o = {}) => run("osascript", ["-l", "JavaScript", "-e", macTree(o.maxNodes || DEFAULT_NODES)], o.timeoutMs || 40000),
+      title: () => runner("osascript", ["-l", "JavaScript", "-e", MAC_TITLE], 8000),
+      check: () => runner("osascript", ["-l", "JavaScript", "-e", MAC_CHECK], 15000),
+      async tree(o = {}) {
+        const engine = o.engine || "auto";
+        if (engine === "slow") return slow(o);
+        if (engine === "fast") return fast(o);
+        try { return await fast(o); }
+        catch (e) {
+          if (/longer than|Accessibility|Automation/.test(String(e.message))) throw e;   // a fallback cannot fix these
+          const r = await slow(o);
+          return { ...r, fellBack: String(e.message).slice(0, 200) };
+        }
+      },
     };
   }
   if (platform === "win32") {
     return {
-      title: () => run("powershell.exe", ps(WIN_TITLE), 10000),
+      title: () => runner("powershell.exe", ps(WIN_TITLE), 10000),
       check: () => Promise.resolve({ ok: true }),
-      tree: (o = {}) => run("powershell.exe", ps(winTree(o.maxNodes || DEFAULT_NODES)), o.timeoutMs || 40000),
+      tree: (o = {}) => runner("powershell.exe", ps(winTree(o.maxNodes || DEFAULT_NODES)), o.timeoutMs || 40000),
     };
   }
   const no = () => Promise.reject(new Error("Reading chat windows is only set up for macOS and Windows."));

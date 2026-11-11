@@ -188,6 +188,15 @@ export function createAgent({ home, fetch: fetchImpl = globalThis.fetch, now = D
     return { paused: false, baselined, recorded, tracking };
   }
 
+  // A one-line note of what the last look at the screen did (never any content), so "why is nothing showing up?" has an answer.
+  async function rememberScreen(r) {
+    if (!r || ["off", "too_soon", "paused"].includes(r.skipped)) return;
+    const next = { skipped: r.skipped || "", tool: r.tool || "", rePrompts: r.rePrompts || 0, labels: r.labels || 0, error: r.error || "" };
+    const prev = (await storage.local.get("screenLast")).screenLast;
+    const same = prev && ["skipped", "tool", "rePrompts", "labels", "error"].every((k) => prev[k] === next[k]);
+    if (!same || now() - (prev.at || 0) > 60000) await storage.local.set({ screenLast: { ...next, at: now() } });
+  }
+
   async function tick() {
     const scan = await scanOnce();
     // paused means paused: nothing is read and nothing is sent
@@ -195,6 +204,7 @@ export function createAgent({ home, fetch: fetchImpl = globalThis.fetch, now = D
     // reading chat windows is off unless the person turned it on; errors here never stop the file watching
     let screen = { skipped: "off" };
     try { screen = await screenStep(); } catch (e) { screen = { skipped: "error", error: String((e && e.message) || e).slice(0, 200) }; }
+    await rememberScreen(screen);
     const synced = await sync.syncNow();
     return { scan, synced, screen };
   }
@@ -214,7 +224,7 @@ export function createAgent({ home, fetch: fetchImpl = globalThis.fetch, now = D
       latest: runs.slice(-5).reverse().map((r) => ({ file: r.fileName, surface: r.surface, changedCells: r.changedCells, minutes: r.estimatedMinutes })),
     };
     return {
-      paused: !!cfg.paused, screen: { enabled: !!(cfg.screen && cfg.screen.enabled), storeMode: (cfg.screen && cfg.screen.storeMode) || "redacted" }, recorded, folders: cfg.folders, fileTypes: [".xlsx", ".xlsm", ".docx", ".pptx"], files: by,
+      paused: !!cfg.paused, screen: { enabled: !!(cfg.screen && cfg.screen.enabled), storeMode: (cfg.screen && cfg.screen.storeMode) || "redacted", last: (await storage.local.get("screenLast")).screenLast || null }, recorded, folders: cfg.folders, fileTypes: [".xlsx", ".xlsm", ".docx", ".pptx"], files: by,
       lastScanAt: (d.agent && d.agent.lastScanAt) || 0, company: co, pending: co.joined ? await sync.pending() : 0,
       dataFile: storage.file,
     };
