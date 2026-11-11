@@ -1,0 +1,8 @@
+Fonts bundled with Farfield (so the dashboard works offline and never loads fonts from the internet).
+Each is licensed under the SIL Open Font License 1.1 (https://openfontlicense.org), which allows bundling and redistribution.
+
+  Lora            (c) The Lora Project Authors, Cyreal. Used for headings and the headline sentence.
+  Carlito         (c) Lukasz Dziedzic, based on Lato; metric-compatible with Calibri. Used for interface text.
+  Liberation Mono (c) Red Hat, Inc. Used for cell references and before/after values.
+
+The files here are Latin-only subsets of the original fonts.

@@ -1,0 +1,73 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { classifyTurn, classifyConversation, countsAsRework } from "../src/screen/classify.js";
+import { SCENES, CASES, SCENES2, CASES2 } from "./chats.js";
+
+function run() {
+  return CASES.map(([scene, text, want, gap]) => {
+    const s = SCENES[scene];
+    const got = classifyTurn(text, { user: s.user, assistant: s.assistant }, gap || 0);
+    return { scene, text, want, got };
+  });
+}
+
+test("measured on made-up chats (printed so it can be read, not just passed)", () => {
+  const rows = run();
+  const right = rows.filter((r) => r.got.label === r.want).length;
+  const corr = rows.filter((r) => r.want === "correction");
+  const corrRight = corr.filter((r) => r.got.label === "correction").length;
+  const flagged = rows.filter((r) => r.got.label === "correction");
+  const precision = flagged.filter((r) => r.want === "correction").length / Math.max(flagged.length, 1);
+  const misses = rows.filter((r) => r.got.label !== r.want).map((r) => `  want ${r.want}, got ${r.got.label} (${r.got.confidence}): "${r.text.slice(0, 70)}"`);
+  console.log(`\n  ${right}/${rows.length} labelled correctly; corrections found ${corrRight}/${corr.length}; correction precision ${(precision * 100).toFixed(0)}%`);
+  if (misses.length) console.log(misses.join("\n"));
+  assert.ok(rows.length >= 30);
+});
+
+test("rework counts only confident corrections, and always says why", () => {
+  const prev = { user: SCENES.earnings.user, assistant: SCENES.earnings.assistant };
+  const fix = classifyTurn("The revenue figure is wrong, it was $1.1 billion", prev);
+  assert.equal(countsAsRework(fix), true);
+  assert.ok(fix.reasons.length > 0);
+  const thanks = classifyTurn("Thanks, looks good", prev);
+  assert.equal(countsAsRework(thanks), false);
+  const unsure = classifyTurn("hmm", prev);
+  assert.equal(countsAsRework(unsure), false);
+});
+
+test("a chat with two tasks is split into two episodes, and only the corrections count", () => {
+  const T = 1_700_000_000_000;
+  const msgs = [
+    { role: "user", text: SCENES.earnings.user, at: T },
+    { role: "assistant", text: SCENES.earnings.assistant, at: T + 20_000 },
+    { role: "user", text: "The revenue figure is wrong, it was $1.1 billion", at: T + 90_000 },
+    { role: "assistant", text: "Acme Corp reported Q3 revenue of $1.1 billion, up 8% year over year.", at: T + 110_000 },
+    { role: "user", text: "Make it shorter", at: T + 150_000 },
+    { role: "assistant", text: "Acme: Q3 revenue $1.1 billion, margin 21%.", at: T + 160_000 },
+    { role: "user", text: "Separately, can you draft talking points for the Delta Inc call tomorrow", at: T + 240_000 },
+    { role: "assistant", text: "Here are talking points for the Delta Inc call: growth outlook, leverage, and covenant headroom.", at: T + 260_000 },
+    { role: "user", text: "Remove the covenant point", at: T + 300_000 },
+  ];
+  const r = classifyConversation(msgs);
+  assert.deepEqual(r.map((x) => x.label), ["correction", "correction", "new_task", "correction"]);
+  assert.deepEqual(r.map((x) => x.episode), [0, 0, 1, 1]);
+  assert.equal(r.filter((x) => x.rework).length, 3);
+});
+
+test("a long pause before an unrelated request starts a new task", () => {
+  const prev = { user: SCENES.email.user, assistant: SCENES.email.assistant };
+  const r = classifyTurn("Quick question about the Brazil bond auction results", prev, 3 * 3600);
+  assert.equal(r.label, "new_task");
+  const stillFixing = classifyTurn("It's still too long, cut it in half", prev, 3 * 3600);
+  assert.equal(stillFixing.label, "correction");     // a pause does not turn a fix into a new task
+});
+
+test("measured on a second set written after tuning (the fairer number, still made up)", () => {
+  const rows = CASES2.map(([scene, text, want]) => ({ text, want, got: classifyTurn(text, { user: SCENES2[scene].user, assistant: SCENES2[scene].assistant }, 0) }));
+  const right = rows.filter((r) => r.got.label === r.want).length;
+  const corr = rows.filter((r) => r.want === "correction");
+  const flagged = rows.filter((r) => r.got.label === "correction");
+  console.log(`\n  second set: ${right}/${rows.length} labelled correctly; corrections found ${corr.filter((r) => r.got.label === "correction").length}/${corr.length}; correction precision ${(flagged.filter((r) => r.want === "correction").length / Math.max(flagged.length, 1) * 100).toFixed(0)}%`);
+  rows.filter((r) => r.got.label !== r.want).forEach((r) => console.log(`  want ${r.want}, got ${r.got.label} (${r.got.confidence}): "${r.text.slice(0, 70)}"`));
+  assert.ok(rows.length >= 15);
+});

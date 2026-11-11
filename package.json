@@ -1,0 +1,13 @@
+{
+  "name": "farfield-agent",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Farfield desktop agent: watches AI-generated Office files in folders you choose and records the edits people make to them.",
+  "type": "module",
+  "bin": { "farfield-agent": "src/cli.js" },
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node src/cli.js app",
+    "test": "node --test --test-reporter=spec test/*.test.js"
+  }
+}
