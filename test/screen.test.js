@@ -696,3 +696,46 @@ test("browser name and profile at the end of a window title are removed before m
   assert.equal(id("Google Chrome", "Q3 summary - Claude - Google Chrome", ), "claude");
   assert.equal(identify({ app: "Google Chrome", title: "Q3 summary - Claude - Google Chrome - Work" }, ["chatgpt"]), null);                // still respects the allowed list
 });
+
+test("native reader: the focus and tail hints are passed to the program, and only when given", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ff-focus-"));
+  const src = path.join(dir, "ax.swift"); fs.writeFileSync(src, "// focus");
+  const ran = [];
+  const probe = createProbe("darwin", async (cmd, args) => { ran.push(args); return { engine: "native", visited: 1, nodes: [] }; }, async () => {},
+    { binDir: path.join(dir, "bin"), compile: async (c, a) => { fs.writeFileSync(a[a.indexOf("-o") + 1], "bin"); }, fsApi: { ...fs, readFileSync: (p, e) => (String(p).endsWith("ax.swift") ? "// focus" : fs.readFileSync(p, e)) } });
+  await probe.tree({ engine: "native", focus: "Chat messages", tail: 900 });
+  assert.deepEqual(ran[0].slice(ran[0].indexOf("--focus")), ["--focus", "Chat messages", "--tail", "900"]);
+  await probe.tree({ engine: "native", focus: "Chat messages" });
+  assert.equal(ran[1][ran[1].indexOf("--tail") + 1], "1500");                       // a default tail
+  await probe.tree({ engine: "native" });
+  assert.ok(!ran[2].includes("--focus") && !ran[2].includes("--tail"));
+});
+
+test("the screen step asks for the tail of Claude's message list, and nothing special for Gemini", async () => {
+  const asked = [];
+  for (const [title, expectFocus] of [["Q3 summary - Claude", "Chat messages"], ["Q3 summary - Google Gemini", undefined]]) {
+    const s = setup({ tools: ["claude", "gemini"] });
+    s.state.win = { app: "Google Chrome", title }; s.state.nodes = first;
+    s.probe.tree = async (o) => { asked.push(o); return { nodes: first }; };
+    await s.mk().tick();
+    assert.equal(asked.at(-1).focus, expectFocus, title);
+    if (expectFocus) assert.ok(asked.at(-1).tail >= 500);
+  }
+});
+
+test("screen dump uses the same hints as the watcher, reads a generous amount, and says what the focus did", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ff-dump-focus-"));
+  const asked = [];
+  const mk = (focus) => ({ title: async () => ({ app: "Google Chrome", title: "x - Claude - Google Chrome - Me" }), check: async () => ({}), tree: async (o) => { asked.push(o); return { engine: "native", visited: 40, focus, skipped: 3100, nodes: [] }; } });
+  const found = await runCli(["screen", "dump"], home, mk("found"));
+  assert.equal(asked[0].focus, "Chat messages"); assert.ok(asked[0].maxNodes >= 5000);
+  assert.match(found.out, /Jumped to the message list and read only its last part \(3100 earlier items skipped\)/);
+  const missing = await runCli(["screen", "dump"], home, mk("missing"));
+  assert.match(missing.out, /Could not find the message list by its label/);
+});
+
+test("the Swift reader can jump to a labelled element and read only the end of its children (checked in the source)", () => {
+  const src = fs.readFileSync(new URL("../src/screen/ax.swift", import.meta.url), "utf8");
+  for (const needle of ['"--focus"', '"--tail"', "findByLabel", "kids.suffix(tailCount)", "focusResult", "skippedChildren", "var focus: String", "var skipped: Int"]) assert.ok(src.includes(needle), needle);
+  assert.ok(/if d == 0 && tailing/.test(src), "only the first level is cut to its tail");
+});

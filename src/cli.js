@@ -9,6 +9,7 @@ import { startApp } from "./app.js";
 import { createProbe, ensureNative } from "./screen/probe.js";
 import { identify, showTitle } from "./screen/sites.js";
 import { extractTurns } from "./screen/turns.js";
+import { hintsFor } from "./screen/adapters/index.js";
 import { shapeDump, maskNodes } from "./screen/shape.js";
 
 const USAGE = `Farfield desktop agent
@@ -104,16 +105,18 @@ export async function main(argv, env = process.env, deps = {}) {
         if (Array.isArray(c.candidates)) say("Windows seen: " + c.candidates.map((w, i) => `#${i + 1} ${w.sub || "?"}${w.main ? " main" : ""}${w.named ? "" : " no-title"} ${w.items} items`).join("; "));
       } }
       catch (e) { say("Permission check failed: " + e.message); return 1; }
-      const maxNodes = Number(flags["max-nodes"] || 800), timeoutMs = Number(flags.timeout || 60) * 1000;
+      const maxNodes = Number(flags["max-nodes"] || 6000), timeoutMs = Number(flags.timeout || 60) * 1000;
       say(`Reading up to ${maxNodes} items (limit ${timeoutMs / 1000} seconds). Larger windows are slow on a Mac.`);
       const started = Date.now();
       let tree;
       if (flags["enable-accessibility"]) say("Asking the app to build its accessibility tree, as VoiceOver would. It stays on in that app until you quit it and can use more memory there. Waiting a few seconds for it.");
-      try { tree = await probe.tree({ maxNodes, timeoutMs, engine: flags.engine || "auto", enableAccessibility: flags["enable-accessibility"] === true, scope: flags.scope === "window" ? "window" : "web" }); }
+      try { tree = await probe.tree({ maxNodes, timeoutMs, engine: flags.engine || "auto", enableAccessibility: flags["enable-accessibility"] === true, scope: flags.scope === "window" ? "window" : "web", ...(tool ? hintsFor(tool.id) : {}) }); }
       catch (e) { say("Could not read the window: " + e.message); return 1; }
       say(`Read took ${((Date.now() - started) / 1000).toFixed(1)} seconds, using the ${tree.engine || "default"} reader${tree.fellBack ? " (the fast one failed: " + tree.fellBack + ")" : ""}.`);
       if (tree.accessibility) say("What macOS accepted when asked to build the tree: " + Object.entries(tree.accessibility).map(([k, v]) => `${k}: ${v}`).join("; "));
       if (Array.isArray(tree.errors) && tree.errors.length) say(`The window reported problems when asked for its contents (so the picture may be incomplete): ${tree.errors.join(" | ")}`);
+      if (tree.focus === "found") say(`Jumped to the message list and read only its last part (${tree.skipped} earlier items skipped).`);
+      if (tree.focus === "missing") say("Could not find the message list by its label, so it read the whole page from the top.");
       if (typeof tree.visited === "number") say(`Looked at ${tree.visited} items${tree.visited >= maxNodes ? " (hit the limit, so there may be more: try a higher --max-nodes)" : " (the whole window, so what it shows is everything the app exposes)"}.`);
       const nodes = Array.isArray(tree.nodes) ? tree.nodes : [];
       const dir = path.join(home, "dumps"); fs.mkdirSync(dir, { recursive: true });

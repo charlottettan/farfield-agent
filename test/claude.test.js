@@ -97,3 +97,17 @@ test("end to end: watching a Claude chat in Chrome counts a correction once and 
   t += 10_000;
   assert.deepEqual(o.feed({ nodes: PAGE(LIST(...first, ...fix), COMPOSER) }, tool).rePrompts, []);
 });
+
+test("claude: a message list read from its tail (the group at depth 0, the first message cut off mid-way) still gives whole messages", () => {
+  // what the reader returns when told to focus on "Chat messages" and keep only the last part of its children
+  const at = (n, d) => ({ ...n, depth: d });
+  const tail = [
+    at(N("AXGroup", "Chat messages", "", "AXApplicationGroup"), 0),
+    // the end of an earlier message, cut off before its marker: must not be attributed to anyone
+    at(N("AXStaticText", "...and that was the end of an older answer."), 1), at(N("AXButton", "Retry"), 1), at(N("AXStaticText", "3 hours ago"), 1),
+    ...[...USER(7, 8, ["Make it shorter"]), ...CLAUDE(8, 8, ["Shorter version: Acme grew 8%."])].map((n) => at(n, 1)),
+  ];
+  const r = claudeTurns(tail);
+  assert.deepEqual(r.turns, [{ role: "user", text: "Make it shorter" }, { role: "assistant", text: "Shorter version: Acme grew 8%." }]);
+  assert.ok(!JSON.stringify(r).includes("older answer"));
+});

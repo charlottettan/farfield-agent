@@ -13,7 +13,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_NODES = 3000, MAX_DEPTH = 30, MAX_OUTPUT = 4 * 1024 * 1024;
+const DEFAULT_NODES = 3000, MAX_DEPTH = 30, MAX_OUTPUT = 32 * 1024 * 1024;
 
 // Browsers keep several windows (helper windows with no title or content). Pick the one that is the real, main window.
 export const PICK_SOURCE = `
@@ -278,6 +278,7 @@ export function createProbe(platform = process.platform, runner = run, sleep = s
       const args = ["--max", String(o.maxNodes || 2000), "--seconds", String(Math.max(5, Math.round((o.timeoutMs || 60000) / 1000) - 10))];
       if (o.enableAccessibility === true) args.push("--enable");
       if (o.scope === "window") args.push("--scope", "window");
+      if (o.focus) args.push("--focus", String(o.focus), "--tail", String(o.tail || 1500));
       return runner(bin, args, o.timeoutMs || 60000);
     };
     const slowRead = async (o) => {
