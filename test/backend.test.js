@@ -11,6 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { createAgent } from "../src/agent.js";
 import { saveConfig, defaults } from "../src/config.js";
+import { hasToken } from "./helpers.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIX = path.join(HERE, "fixtures");
@@ -79,9 +80,9 @@ test("agent joins, records a file edit, and the server receives it (full mode ke
   assert.equal(r.synced.ok, true, JSON.stringify(r.synced));
   assert.ok(r.synced.sent.fileRuns >= 1);
   const local = (await agent.storage.local.get("fileRuns")).fileRuns[0];
-  const wording = local.changes.map((c) => c.after).find((x) => x && x.length > 2);
+  const wording = local.changes.map((c) => c.after).filter((x) => x && x.length > 2).sort((a, b) => b.length - a.length)[0];
   assert.ok(wording, "the fixture should change at least one cell to a visible value");
-  assert.ok(dbText(be.dbPath).includes(wording), "full mode stores the wording");
+  assert.ok(hasToken(dbText(be.dbPath), wording), "full mode stores the wording: " + wording);
   // sending again changes nothing
   const again = await agent.sync.syncNow();
   assert.equal(again.total, 0);
@@ -105,7 +106,7 @@ test("themes-only mode: the wording of a file change never reaches the server", 
   const wordings = local.changes.flatMap((c) => [c.before, c.after]).filter((x) => x && x.length > 3);
   assert.ok(wordings.length > 0);
   const stored = dbText(be.dbPath);
-  for (const w of wordings) assert.ok(!stored.includes(w), "leaked: " + w);
+  for (const w of wordings) assert.ok(!hasToken(stored, w), "leaked: " + w);
   // the record itself did arrive (so "no leak" is not just "nothing was sent")
   const org = await agent.sync.fetchOrgData();
   assert.equal((org.data || org).fileRuns.length, 1);

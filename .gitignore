@@ -1,0 +1,9 @@
+node_modules/
+*.db
+*.db-*
+.DS_Store
+# the agent keeps its data in your home folder, never here, but never commit these if they ever land here
+data.json
+dumps/
+baselines/
+config.json

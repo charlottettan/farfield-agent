@@ -209,28 +209,60 @@ const AX_SOURCE = path.join(path.dirname(fileURLToPath(import.meta.url)), "ax.sw
 function runRaw(cmd, args, timeoutMs) {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { timeout: timeoutMs, maxBuffer: MAX_OUTPUT, windowsHide: true }, (err, stdout, stderr) => {
-      if (err) { const e = new Error(String(stderr || err.message || "").slice(-1500)); e.code = err.code; return reject(e); }
+      if (err) { const full = String(stderr || err.message || ""); const e = new Error(full.slice(-1500)); e.full = full.slice(0, 200000); e.code = err.code; return reject(e); }
       resolve({ stdout, stderr });
     });
   });
 }
 
+const MISMATCH = /failed to build module 'Swift'|not supported by the compiler|different version of the compiler|compiled module was created|-module-name Swift/;
+const SDK_DIR = "/Library/Developer/CommandLineTools/SDKs";
+const versionOf = (name) => (/MacOSX(\d[\d.]*)\.sdk/.exec(name) || [0, "0"])[1].split(".").map(Number);
+const newestFirst = (a, b) => { const x = versionOf(a), y = versionOf(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (y[i] || 0) - (x[i] || 0); if (d) return d; } return 0; };
+
 export function compileHelp(e) {
-  const text = String((e && e.message) || "");
-  if ((e && e.code === "ENOENT") || /xcrun: error|command not found|no developer tools|ENOENT/i.test(text)) {
+  const full = String((e && (e.full || e.message)) || "");
+  if ((e && e.code === "ENOENT") || /xcrun: error|command not found|no developer tools|ENOENT/i.test(full)) {
     return "Swift was not found. In Terminal run: xcode-select --install, wait for it to finish, then try again.";
   }
-  return "Swift could not compile the reader. Paste this back so it can be fixed:\n" + text.slice(-1200);
+  // Show the compiler's own error lines, not the long command line it prints around them.
+  const errors = full.split("\n").filter((l) => /\berror:/.test(l)).slice(0, 10).map((l) => l.trim().slice(0, 300));
+  const mismatch = MISMATCH.test(full);
+  const head = mismatch
+    ? "Swift is installed, but it does not match this Mac's system files (a command line tools update is needed)" + ((e && e.triedSdks && e.triedSdks.length) ? ", and older SDKs (" + e.triedSdks.join(", ") + ") did not work either" : "") + ". Open System Settings > General > Software Update and install any 'Command Line Tools' update. If there is none, in Terminal run: sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install"
+    : "Swift could not compile the reader.";
+  return head + (errors.length ? "\nThe compiler's errors:\n" + errors.join("\n") : "\n" + full.slice(0, 600));
 }
 
-export async function ensureNative({ binDir, compile = runRaw, fsApi = fs, source = AX_SOURCE } = {}) {
+export async function ensureNative({ binDir, compile = runRaw, fsApi = fs, source = AX_SOURCE, sdkDir = SDK_DIR } = {}) {
   const hash = crypto.createHash("sha256").update(fsApi.readFileSync(source)).digest("hex").slice(0, 12);
   const bin = path.join(binDir, "farfield-ax-" + hash);          // a changed source gives a new name, so it is recompiled
   if (fsApi.existsSync(bin)) return bin;
   fsApi.mkdirSync(binDir, { recursive: true });
-  try { await compile("swiftc", ["-O", "-o", bin, source], 300000); }
-  catch (e) { throw new Error(compileHelp(e)); }
-  return bin;
+  const args = (sdk) => [...(sdk ? ["-sdk", path.join(sdkDir, sdk)] : []), "-O", "-o", bin, source];
+  let failure;
+  try { await compile("swiftc", args(), 300000); return bin; } catch (e) { failure = e; }
+
+  // A compiler older than the system files it finds (a half-updated command line tools install) cannot read them.
+  // Older SDKs usually sit next to the newest one, so try those before giving up.
+  const tried = [];
+  const firstText = String((failure && (failure.full || failure.message)) || "");
+  if (MISMATCH.test(firstText)) {
+    const refused = (/SDKs\/(MacOSX[\d.]*\.sdk)/.exec(firstText) || [])[1];
+    let names = []; try { names = fsApi.readdirSync(sdkDir); } catch { names = []; }
+    // SDK folders often include shortcuts ("MacOSX27.sdk" -> "MacOSX27.0.sdk"). Skip anything that points at a place already refused or tried.
+    const real = (n) => { try { return fsApi.realpathSync(path.join(sdkDir, n)); } catch { return path.join(sdkDir, n); } };
+    const seen = new Set(refused ? [real(refused)] : []);
+    const older = names.filter((n) => /^MacOSX\d[\d.]*\.sdk$/.test(n) && n !== refused).sort(newestFirst).filter((n) => { const r = real(n); if (seen.has(r)) return false; seen.add(r); return true; });
+    for (const sdk of older) {
+      tried.push(sdk);
+      try { await compile("swiftc", args(sdk), 300000); return bin; } catch (e) { failure = e; }
+    }
+  }
+  let where = "";
+  try { const log = path.join(binDir, "compile.log"); fsApi.writeFileSync(log, String((failure && (failure.full || failure.message)) || "")); where = "\nThe full compiler output is saved in " + log; } catch { /* the message above still stands */ }
+  const err = new Error(compileHelp(Object.assign(Object.create(failure || {}), { full: String((failure && (failure.full || failure.message)) || ""), message: failure && failure.message, code: failure && failure.code, triedSdks: tried })) + where);
+  throw err;
 }
 
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -13,6 +13,7 @@ import { createAgent } from "../src/agent.js";
 import { saveConfig, defaults, loadConfig } from "../src/config.js";
 import { createFileStorage } from "../src/storage.js";
 import { main as cli } from "../src/cli.js";
+import { hasToken } from "./helpers.js";
 
 const CLAUDE = { id: "claude", name: "Claude" };
 const lines = (...pairs) => pairs.flatMap(([who, text]) => [{ role: "AXStaticText", text: who }, { role: "AXStaticText", text }]);
@@ -454,7 +455,7 @@ test("native reader: compiled once and reused, recompiled when the source change
   const missing = Object.assign(new Error("spawn swiftc ENOENT"), { code: "ENOENT" });
   await assert.rejects(ensureNative({ binDir: path.join(dir, "b2"), compile: async () => { throw missing; }, source: src }), /xcode-select --install/);
   const broken = new Error("ax.swift:12:5: error: cannot find 'foo' in scope");
-  await assert.rejects(ensureNative({ binDir: path.join(dir, "b3"), compile: async () => { throw broken; }, source: src }), /Paste this back[\s\S]*cannot find 'foo'/);
+  await assert.rejects(ensureNative({ binDir: path.join(dir, "b3"), compile: async () => { throw broken; }, source: src }), /The compiler's errors:[\s\S]*cannot find 'foo'/);
   assert.match(compileHelp({ message: "xcrun: error: invalid active developer path" }), /xcode-select/);
 });
 
@@ -492,4 +493,111 @@ test("the page's own class names are kept in saved structure and shown in the sh
   const shown = shapeDump({ win: { app: "Safari" }, nodes: masked });
   assert.ok(shown.includes("[message-content.user-query-bubble]"));
   assert.ok(!/confidential|Sierra/.test(shown));
+});
+
+test("a Swift compile failure shows the compiler's real errors, not its long command line, and recognises a toolchain mismatch", async () => {
+  // shaped like what a real Mac printed: the error lines come first, then a very long command line
+  const longLine = "/Library/Developer/CommandLineTools/usr/bin/swift-frontend -frontend -compile-module-from-interface -module-name Swift " + "-enable-experimental-feature X ".repeat(120);
+  const stderr = [
+    "error: failed to build module 'Swift'; this SDK is not supported by the compiler (the SDK is built with 'Apple Swift version 6.2', while this compiler is 'Apple Swift version 6.1'). Please select a toolchain which matches the SDK.",
+    "note: compiled with a different version",
+    longLine,
+  ].join("\n");
+  const help = compileHelp({ message: stderr.slice(-1500), full: stderr });
+  assert.match(help, /does not match this Mac's system files/);
+  assert.match(help, /Command Line Tools/);
+  assert.match(help, /failed to build module 'Swift'/);          // the real error is shown
+  assert.ok(help.length < 1200, "the long command line must not be dumped: " + help.length);
+  // an ordinary compile error is shown line by line
+  const plainLine = "/Library/Developer/CommandLineTools/usr/bin/swift-frontend -frontend -c ax.swift -module-name farfield_ax " + "-enable-experimental-feature X ".repeat(120);
+  const plain = compileHelp({ full: "ax.swift:12:5: error: cannot find 'foo' in scope\nax.swift:30:1: error: expected '}'\n" + plainLine });
+  assert.match(plain, /ax.swift:12:5: error: cannot find 'foo' in scope/);
+  assert.match(plain, /expected '}'/);
+  assert.ok(!/does not match/.test(plain));
+  // the full output is saved to a file and its location is reported
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ff-log-"));
+  const src = path.join(dir, "ax.swift"); fs.writeFileSync(src, "// x");
+  await assert.rejects(ensureNative({ binDir: path.join(dir, "bin"), source: src, compile: async () => { throw Object.assign(new Error("tail"), { full: stderr }); } }), (err) => {
+    assert.match(err.message, /saved in .*compile\.log/);
+    assert.ok(fs.readFileSync(path.join(dir, "bin", "compile.log"), "utf8").includes("failed to build module"));
+    return true;
+  });
+});
+
+test("a compile failure that shows only the standard-library build command (what a real Mac printed) is still recognised as a toolchain mismatch", () => {
+  const onlyTail = "brary-evolution -module-link-name swiftCore -parse-stdlib -language-mode 5 -O -library-level api -user-module-version 6.4.0.31.5 -module-name Swift";
+  const help = compileHelp({ message: onlyTail, full: onlyTail });
+  assert.match(help, /does not match this Mac's system files/);
+  assert.match(help, /Software Update/);
+});
+
+test("the leak check matches whole values, so random ids and timestamps cannot cause a false alarm", () => {
+  assert.equal(hasToken('{"id":"usr_ab2100cd"}', "2100"), false);          // inside an id
+  assert.equal(hasToken("created 1794342100123", "2100"), false);          // inside a timestamp
+  assert.equal(hasToken('{"after":"2100"}', "2100"), true);                // the value itself
+  assert.equal(hasToken("revenue 2100 up", "2100"), true);
+  assert.equal(hasToken("2100", "2100"), true);
+  assert.equal(hasToken('{"a":"Revenue (USD m)"}', "Revenue (USD m)"), true);   // text with regex characters
+  // regex characters are matched literally, never as patterns
+  for (const [h, w, want] of [["RevenueXUSD m", "Revenue (USD m)", false], ["a.b", "a.b", true], ["axb", "a.b", false], ["x[1]", "x[1]", true], ["x1", "x[1]", false],
+    ["c++", "c++", true], ["what?", "what?", true], ["a|b", "a|b", true], ["a", "a|b", false], ["$100", "$100", true], ["back\\slash", "back\\slash", true]]) {
+    assert.equal(hasToken(h, w), want, JSON.stringify([h, w]));
+  }
+});
+
+test("a compiler older than the system files retries with older SDKs from the same folder, newest first, never the one it refused", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ff-sdk-"));
+  const src = path.join(dir, "ax.swift"); fs.writeFileSync(src, "// sdk test");
+  const sdkDir = path.join(dir, "SDKs"); fs.mkdirSync(sdkDir);
+  ["MacOSX.sdk", "MacOSX14.sdk", "MacOSX26.2.sdk", "MacOSX26.10.sdk", "MacOSX27.0.sdk"].forEach((n) => fs.mkdirSync(path.join(sdkDir, n)));
+  const mismatch = (sdk) => Object.assign(new Error("tail"), { full: `${sdkDir}/${sdk}/usr/lib/swift/Swift.swiftmodule/arm64e-apple-macos.swiftinterface:1:1: error: failed to build module 'Swift'; this SDK is not supported by the compiler` });
+  const calls = [];
+  const works = new Set(["MacOSX26.2.sdk"]);                          // only this older SDK compiles
+  const compile = async (cmd, args) => {
+    const sdk = args.includes("-sdk") ? path.basename(args[args.indexOf("-sdk") + 1]) : "default";
+    calls.push(sdk);
+    if (sdk === "default") throw mismatch("MacOSX27.0.sdk");
+    if (works.has(sdk)) { fs.writeFileSync(args[args.indexOf("-o") + 1], "bin"); return; }
+    throw mismatch(sdk);
+  };
+  const bin = await ensureNative({ binDir: path.join(dir, "bin"), compile, source: src, sdkDir });
+  assert.ok(fs.existsSync(bin));
+  assert.deepEqual(calls, ["default", "MacOSX26.10.sdk", "MacOSX26.2.sdk"]);   // 26.10 is newer than 26.2; 27.0 (refused) and the MacOSX.sdk link are skipped
+
+  // none of them work: a clear message that lists what was tried, and the log is saved
+  calls.length = 0; works.clear();
+  await assert.rejects(ensureNative({ binDir: path.join(dir, "bin2"), compile, source: src, sdkDir }), (err) => {
+    assert.match(err.message, /older SDKs \(MacOSX26.10.sdk, MacOSX26.2.sdk, MacOSX14.sdk\) did not work/);
+    assert.match(err.message, /Software Update/);
+    assert.match(err.message, /compile\.log/);
+    return true;
+  });
+  assert.deepEqual(calls, ["default", "MacOSX26.10.sdk", "MacOSX26.2.sdk", "MacOSX14.sdk"]);
+
+  // an ordinary compile error is not retried with other SDKs, and a missing SDK folder is fine
+  calls.length = 0;
+  const plain = async (cmd, args) => { calls.push("x"); throw Object.assign(new Error("t"), { full: "ax.swift:3:1: error: expected '}'" }); };
+  await assert.rejects(ensureNative({ binDir: path.join(dir, "bin3"), compile: plain, source: src, sdkDir }), /expected '}'/);
+  assert.equal(calls.length, 1);
+  calls.length = 0;
+  await assert.rejects(ensureNative({ binDir: path.join(dir, "bin4"), compile: async () => { calls.push("y"); throw mismatch("MacOSX27.0.sdk"); }, source: src, sdkDir: path.join(dir, "nope") }), /does not match/);
+  assert.equal(calls.length, 1);
+});
+
+test("SDK shortcuts that point at an SDK already refused or tried are skipped (the layout seen on a real Mac)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ff-sdk2-"));
+  const src = path.join(dir, "ax.swift"); fs.writeFileSync(src, "// sdk links");
+  const sdkDir = path.join(dir, "SDKs"); fs.mkdirSync(sdkDir);
+  for (const n of ["MacOSX27.0.sdk", "MacOSX26.5.sdk", "MacOSX15.4.sdk", "MacOSX11.1.sdk"]) fs.mkdirSync(path.join(sdkDir, n));
+  for (const [link, target] of [["MacOSX.sdk", "MacOSX27.0.sdk"], ["MacOSX27.sdk", "MacOSX27.0.sdk"], ["MacOSX26.sdk", "MacOSX26.5.sdk"], ["MacOSX15.sdk", "MacOSX15.4.sdk"]]) fs.symlinkSync(target, path.join(sdkDir, link));
+  const refusal = (sdk) => Object.assign(new Error("t"), { full: `${sdkDir}/${sdk}/usr/lib/swift/Swift.swiftmodule/x.swiftinterface:1:1: error: failed to build module 'Swift'; this SDK is not supported by the compiler` });
+  const calls = [];
+  const compileNone = async (cmd, args) => { calls.push(args.includes("-sdk") ? path.basename(args[args.indexOf("-sdk") + 1]) : "default"); throw refusal("MacOSX27.0.sdk"); };
+  await assert.rejects(ensureNative({ binDir: path.join(dir, "b1"), compile: compileNone, source: src, sdkDir }), /older SDKs \(MacOSX26.5.sdk, MacOSX15.4.sdk, MacOSX11.1.sdk\)/);
+  assert.deepEqual(calls, ["default", "MacOSX26.5.sdk", "MacOSX15.4.sdk", "MacOSX11.1.sdk"]);      // no 27.sdk, 26.sdk or 15.sdk repeats
+  calls.length = 0;
+  const compile265 = async (cmd, args) => { const sdk = args.includes("-sdk") ? path.basename(args[args.indexOf("-sdk") + 1]) : "default"; calls.push(sdk); if (sdk === "MacOSX26.5.sdk") { fs.writeFileSync(args[args.indexOf("-o") + 1], "bin"); return; } throw refusal("MacOSX27.0.sdk"); };
+  const bin = await ensureNative({ binDir: path.join(dir, "b2"), compile: compile265, source: src, sdkDir });
+  assert.ok(fs.existsSync(bin));
+  assert.deepEqual(calls, ["default", "MacOSX26.5.sdk"]);                                          // stops at the first that works
 });
