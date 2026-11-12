@@ -77,10 +77,13 @@
 
   refresh().then(function () { post("/api/storage/stamp").then(function (r) { lastStamp = r.stamp; }); setInterval(poll, 1500); }, function () {});
 
-  // A small always-visible status pill, so it is clear Farfield is running and can be paused from any page.
+  // A small always-visible status, so it is clear Farfield is running and can be paused from any page. On the dashboard it
+  // sits in the top bar (styled by farfield-look.css); anywhere else it is a small pill in the corner.
   function pill() {
-    var box = document.createElement("div");
+    var bar = document.querySelector(".top-controls");
+    var box = document.createElement(bar ? "span" : "div");
     box.setAttribute("role", "status");
+    if (bar) return inBar(bar, box);
     box.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:2147483000;display:flex;gap:8px;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid rgba(128,128,128,.45);background:Canvas;color:CanvasText;font:12px/1.2 Inter,-apple-system,'Segoe UI',Roboto,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.15)";
     var dot = document.createElement("span"); dot.style.cssText = "width:8px;height:8px;border-radius:50%;background:#999";
     var label = document.createElement("span"); label.textContent = "Farfield";
@@ -93,6 +96,26 @@
       paused = !!s.paused;
       dot.style.background = paused ? "#c98a00" : s.running ? "#2e9d57" : "#999";
       label.textContent = paused ? "Farfield is paused" : s.running ? "Farfield is running" : "Farfield is not running";
+      btn.textContent = paused ? "Resume" : "Pause";
+    }
+    function load() { fetch("/api/agent/status", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(draw, function () {}); }
+    btn.addEventListener("click", function () { post(paused ? "/api/agent/resume" : "/api/agent/pause").then(draw, function () {}); });
+    load(); setInterval(load, 5000);
+  }
+  function inBar(bar, box) {
+    box.className = "ff-status";
+    var dot = document.createElement("span"); dot.className = "ff-dot";
+    var label = document.createElement("span"); label.textContent = "Farfield";
+    var btn = document.createElement("button"); btn.type = "button";
+    var sep = document.createElement("span"); sep.className = "ff-sep"; sep.setAttribute("aria-hidden", "true");
+    var link = document.createElement("a"); link.href = "/panel.html"; link.textContent = "Panel";
+    box.appendChild(dot); box.appendChild(label); box.appendChild(btn); box.appendChild(sep); box.appendChild(link);
+    bar.insertBefore(box, bar.firstChild);
+    var paused = false;
+    function draw(s) {
+      paused = !!s.paused;
+      dot.style.background = paused ? "#E0A53A" : s.running ? "#5CC58A" : "#8A909C";
+      label.textContent = paused ? "Paused" : s.running ? "Running" : "Not running";
       btn.textContent = paused ? "Resume" : "Pause";
     }
     function load() { fetch("/api/agent/status", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(draw, function () {}); }
