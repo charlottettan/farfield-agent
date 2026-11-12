@@ -111,8 +111,9 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
   function feed(snapshot, tool, meta = {}) {
     const t = now();
     const { turns } = extractTurns(snapshot, tool);
-    // replies: the AI's replies on screen this look, handed to the email matcher (kept in memory there, never saved by the observer)
-    const out = { rePrompts: [], sessions: [], labels: [], replies: turns.filter((x) => x.role === "assistant").map((x) => x.text), seen: turns.length, changed: false };
+    // replies: the AI's replies on screen this look, each with the workflow of the task it answered, handed to the email matcher
+    // (kept in memory there, never saved by the observer), so an email built from a reply is filed with the chat it came from
+    const out = { rePrompts: [], sessions: [], labels: [], replies: [], seen: turns.length, changed: false };
     if (!turns.length) return out;
     const keys = keysOf(turns);
     const titleHash = meta && meta.title ? h("title|" + tool.id + "|" + norm(meta.title)).slice(0, 16) : "";
@@ -130,15 +131,18 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
     c.lastAt = t;
     const ensureEpisode = () => { if (!c.episodes.length) c.episodes.push({ n: 0, startedAt: t, corrections: 0, reviewSeconds: 0, workflow: "", kind: "" }); return c.episodes[c.episodes.length - 1]; };
 
+    if (!c.replyWf) c.replyWf = new Map();                       // which task each AI reply belongs to (in memory only)
+    const currentWf = () => (c.episodes.length ? c.episodes[c.episodes.length - 1].workflow : "") || unsorted(tool);
     turns.forEach((turn, i) => {
       const k = keys[i];
+      if (turn.role === "assistant" && !c.keys.has(k) && !c.replyWf.has(k)) c.replyWf.set(k, "");   // filled in below, once the task is known
       if (c.keys.has(k)) {                                       // seen before: only keep the context current (a restarted watcher has none)
         if (turn.role === "assistant") c.prev.assistant = turn.text; else c.prev.user = turn.text;
         return;
       }
       c.keys.add(k);
       out.changed = true;
-      if (turn.role === "assistant") { c.prev.assistant = turn.text; c.assistantSeenAt = t; return; }
+      if (turn.role === "assistant") { c.prev.assistant = turn.text; c.assistantSeenAt = t; c.replyWf.set(k, currentWf()); return; }
 
       c.userCount++;
       const first = typeof turn.index === "number" ? turn.index === 1 : c.userCount === 1 && !beganEarlier;
@@ -171,6 +175,9 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
       });
       if (rec) out.rePrompts.push(rec);
     });
+
+    turns.forEach((turn, i) => { if (turn.role === "assistant") out.replies.push({ text: turn.text, workflow: c.replyWf.get(keys[i]) || currentWf() }); });
+    if (c.replyWf.size > MAX_KEYS) c.replyWf = new Map([...c.replyWf].slice(-MAX_KEYS));
 
     const last = c.episodes.length ? c.episodes[c.episodes.length - 1].n : -1;
     for (const ep of c.episodes) if (ep.corrections > 0 || ep.n === last) out.sessions.push(sessionRecord(c, ep, t));

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { taskKind, firstSentence } from "../src/screen/task.js";
+import { taskKind, firstSentence, hasPastedEmail, instructionOf } from "../src/screen/task.js";
 import { createObserver } from "../src/screen/observer.js";
 
 // Made-up opening prompts and the kind a person would give each. Written before the rules were run on them.
@@ -130,4 +130,34 @@ test("workflow naming survives a restart, and what is remembered holds only a la
   const evil = JSON.parse(JSON.stringify(saved)); evil.convs[0].episodes[0].workflow = "x".repeat(500); evil.convs[1] = null;
   const g = createObserver({ now: c.now, mode: "full", salt: "k", state: evil });
   assert.ok(g.snapshot().convs[0].episodes[0].workflow.length <= 120);
+});
+
+// People often start (or end) a prompt by pasting the whole email thread. The task is what they ask, not what the emails talk about.
+const THREAD = ["From: Carlos Ruiz <carlos@example.com>", "Sent: Tuesday, November 10, 2026 9:02 AM", "Subject: Re: Rewired summary", "",
+  "Hi Charlotte,", "Great to hear the summary was useful. Happy to share the slides from the presentation and notes from the meeting.", "Best,", "Carlos", "",
+  "On Mon, Nov 9, 2026 at 4:15 PM Charlotte Tan <ct@example.edu> wrote:", "> Thanks for the summary and the deck!"].join("\n");
+
+test("task kind: a pasted email thread does not decide the kind of task; the instruction around it does", () => {
+  const kind = (t) => (taskKind(t) || {}).label || null;
+  assert.equal(kind(THREAD + "\n\nHelp me reply to Carlos and ask for a 15 minute call next week"), "Email draft");
+  assert.equal(kind("Draft a reply to this:\n\n" + THREAD), "Email draft");
+  assert.equal(kind(THREAD + "\n\nwhat should I say back?"), "Email draft");
+  assert.equal(kind(THREAD), "Email draft");                                         // a thread with no instruction is to be answered
+  assert.equal(kind(THREAD + "\n\nSummarize this thread in three bullets"), "Summary");
+  assert.equal(kind("Here is our thread:\n" + THREAD + "\n\nPrepare talking points for my call with Carlos"), "Meeting prep");
+  assert.ok(hasPastedEmail(THREAD) && !hasPastedEmail("Summarize the Q3 call"));
+  assert.ok(!/Carlos Ruiz|example\.com|slides/.test(instructionOf(THREAD + "\n\nHelp me reply")), instructionOf(THREAD + "\n\nHelp me reply"));
+});
+
+test("task kind: asking for an email to someone is an email, whatever it is about", () => {
+  const kind = (t) => (taskKind(t) || {}).label || null;
+  assert.equal(kind("Help me write to Carlos about the Rewired summary he sent"), "Email draft");
+  assert.equal(kind("Write back to Dana and say yes to Thursday"), "Email draft");
+  assert.equal(kind("Message Tim that the deck will be late"), "Email draft");
+  assert.equal(kind("Write a python script to write to a csv file"), "Code");
+});
+
+test("first sentence: a workflow is never named after a pasted email", () => {
+  assert.equal(firstSentence(THREAD + "\n\nHelp me reply to Carlos. Keep it short."), "Help me reply to Carlos.");
+  assert.equal(firstSentence(THREAD), "Email");
 });

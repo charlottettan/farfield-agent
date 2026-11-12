@@ -103,3 +103,14 @@ test("corrections stay corrections; new deliverables of another kind are new tas
   assert.equal(label("Write a test for this function", code), "extension");
   assert.equal(label("Make a pivot table of this", { user: "Write a formula to sum column B", assistant: "=SUM(B:B)", task: "Spreadsheet help" }), "extension");
 });
+
+test("a pasted email is not judged as the person's words: Carlos's \u201cthe date should be the 18th\u201d is not a correction", async () => {
+  const { classifyTurn } = await import("../src/screen/classify.js");
+  const prev = { user: "Draft an email to Carlos", assistant: "Hi Carlos,\nThank you for the summary. Free next week?\nBest,\nCharlotte", task: "Email draft" };
+  const reply = "Hi Charlotte,\nHappy to help. The date should be the 18th though, and I'd change the agenda. Is there an error in the deck?\nBest,\nCarlos";
+  assert.equal(classifyTurn("He replied:\n\n" + reply + "\n\nDraft a response saying the 18th works", prev, 30).label, "new_task");
+  assert.equal(classifyTurn(reply, prev, 30).label, "new_task");
+  assert.equal(classifyTurn(reply + "\n\nwhat should I say back?", prev, 30).label, "new_task");
+  assert.equal(classifyTurn("Change it to:\n\nHi Carlos,\nThanks so much. Free Thursday?\nBest,\nCharlotte", prev, 30).label, "correction");
+  assert.equal(classifyTurn("Too formal, he's a friend", prev, 30).label, "correction");
+});

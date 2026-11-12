@@ -85,17 +85,20 @@ const PRIVACY = { full: "full", redacted: "redacted", off: "none" };
 // mode: how wording is kept ("redacted" masks emails and numbers, "off" keeps none), as for chat reading.
 export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "" } = {}) {
   const h = (s) => crypto.createHash("sha256").update(salt + "|" + s).digest("hex");
-  let replies = [];               // { text, tool, at }   in memory only
+  let replies = [];               // { text, tool, workflow, at }   in memory only
   let draft = null;               // { app, ai, tool, last, firstAt, lastAt, key }
   const ended = new Map();        // key -> when that email was first seen, so a draft picked up again keeps its start time (in memory only)
 
-  function noteReplies(toolName, texts) {
+  // items: the replies' text, or { text, workflow } with the workflow of the chat task each one answered
+  function noteReplies(toolName, items) {
     const t = now();
-    for (const text of texts || []) {
+    for (const item of items || []) {
+      const text = typeof item === "string" ? item : item && item.text;
+      const workflow = typeof item === "string" ? "" : String((item && item.workflow) || "").slice(0, 120);
       if (!text || text.length < 40) continue;
       const i = replies.findIndex((r) => r.text === text);
-      if (i >= 0) { replies[i].at = t; continue; }
-      replies.push({ text, tool: toolName, at: t });
+      if (i >= 0) { replies[i].at = t; if (workflow) replies[i].workflow = workflow; continue; }
+      replies.push({ text, tool: toolName, workflow, at: t });
     }
     replies = replies.filter((r) => t - r.at <= REPLY_TTL).slice(-MAX_REPLIES);
   }
@@ -108,11 +111,11 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
     const built = L.buildWordCorrection(d.ai, d.last, ctx);
     ended.set(d.key, d.firstAt);
     for (const [k, at] of ended) if (now() - at > REPLY_TTL) ended.delete(k);
-    const send = { ...built.send, id: "em_" + d.key, surface: d.surface, workflow: "Email draft" };      // the id lets a re-finished email replace its send
+    const send = { ...built.send, id: "em_" + d.key, surface: d.surface, workflow: d.workflow };      // the id lets a re-finished email replace its send
     let correction = null;
     if (built.correction) {
       correction = {
-        ...built.correction, id: "em_" + d.key, surface: d.surface, workflow: "Email draft", file: "",
+        ...built.correction, id: "em_" + d.key, surface: d.surface, workflow: d.workflow, file: "",
         timeSource: "estimated", ended: reason,     // "closed": the draft box went away (sent or discarded); "idle": not seen for 3 minutes
         activeSeconds: Math.round(Math.max(0, d.lastAt - d.firstAt) / 1000),
       };
@@ -153,7 +156,8 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
     if (!hit) return;                                                        // not from an AI reply seen here: nothing is kept
     const ai = aiSpan(hit.text, text);
     const key = h(app.id + "|" + ai).slice(0, 14);
-    draft = { app: app.id, boxId, surface: app.surface || app.name, tool: hit.tool, ai, last: text, firstAt: ended.get(key) || t, lastAt: t, key };
+    // filed with the chat it came from (its workflow), or "Email draft" when that is not known
+    draft = { app: app.id, boxId, surface: app.surface || app.name, tool: hit.tool, workflow: hit.workflow || "Email draft", ai, last: text, firstAt: ended.get(key) || t, lastAt: t, key };
   }
 
   // Called on every look, whatever is in front, so a draft left open and forgotten still ends.
@@ -163,7 +167,7 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
   }
 
   // What the dashboard may show about a draft being followed right now: no text, only which tool and app, and since when.
-  const status = () => (draft ? { tool: draft.tool, surface: draft.surface, since: draft.firstAt, endsAfterIdle: Math.round(DRAFT_IDLE / 60000) } : null);
+  const status = () => (draft ? { tool: draft.tool, surface: draft.surface, workflow: draft.workflow, since: draft.firstAt, endsAfterIdle: Math.round(DRAFT_IDLE / 60000) } : null);
 
   return { noteReplies, see, tick, status, following: () => !!draft, replyCount: () => replies.length, lastLook: () => ({ ...last, replies: replies.length }) };
 }
