@@ -123,8 +123,16 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
     return null;
   }
 
+  // Numbers only (never text), for `screen log`: how many AI replies are remembered, how long the draft is, and how close the
+  // closest reply came, so a draft that was not followed can be explained.
+  let last = { replies: 0, draftWords: 0, shared: 0, share: 0 };
+
   function start(app, text, t) {
-    const hit = text ? matchReply(text, replies.filter((r) => t - r.at <= REPLY_TTL)) : null;
+    const live = replies.filter((r) => t - r.at <= REPLY_TTL);
+    let best = { shared: 0, share: 0 };
+    for (const r of live) { const o = overlap(text, r.text); if (o.shared > best.shared) best = o; }
+    last = { replies: live.length, draftWords: words(text).length, shared: best.shared, share: Math.round(best.share * 100) };
+    const hit = text ? matchReply(text, live) : null;
     if (!hit) return;                                                        // not from an AI reply seen here: nothing is kept
     const ai = aiSpan(hit.text, text);
     draft = { app: app.id, surface: app.surface || app.name, tool: hit.tool, ai, last: text, firstAt: t, lastAt: t, key: h(app.id + "|" + ai).slice(0, 14) };
@@ -136,5 +144,5 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
     return null;
   }
 
-  return { noteReplies, see, tick, following: () => !!draft, replyCount: () => replies.length };
+  return { noteReplies, see, tick, following: () => !!draft, replyCount: () => replies.length, lastLook: () => ({ ...last, replies: replies.length }) };
 }

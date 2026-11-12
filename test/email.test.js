@@ -229,3 +229,14 @@ test("cli: `screen dump --email --delay 5` waits before reading (--email takes n
   } finally { globalThis.setTimeout = realTimeout; }
   assert.ok(waited >= 5000, "waited " + waited + "ms; output: " + out.join(" | "));
 });
+
+test("tracker: a draft that is not linked says why, in numbers only", () => {
+  const tr = createEmailTracker({ now: () => 0 });
+  tr.noteReplies("Claude", [REPLY]);
+  tr.see({ id: "gmail", name: "Gmail", surface: "Gmail" }, "Hey, are we still on for lunch tomorrow at noon? I can book the usual place.");
+  const m = tr.lastLook();
+  assert.equal(m.replies, 1);
+  assert.equal(m.draftWords, 16);
+  assert.equal(m.shared, 0);
+  assert.ok(!JSON.stringify(m).includes("lunch"));
+});

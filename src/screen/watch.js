@@ -98,7 +98,7 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
       }
       if (res.changed) patch.observerState = observer.snapshot();
       if (Object.keys(patch).length) await storage.local.set(patch);
-      return { tool: tool.id, basis: tool.basis, engine: snapshot.engine || "", seen: res.seen, rePrompts: res.rePrompts.length, labels: res.labels.length, fellBack: snapshot.fellBack || "" };
+      return { tool: tool.id, basis: tool.basis, engine: snapshot.engine || "", ...(emailApps.length ? { repliesKept: (await getTracker(mode)).replyCount(), repliesSeen: res.replies.length } : {}), seen: res.seen, rePrompts: res.rePrompts.length, labels: res.labels.length, fellBack: snapshot.fellBack || "" };
     } finally { busy = false; }
   };
 
@@ -110,6 +110,6 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
     const inBox = !!snap && snap.engine === "native" && snap.focus === "found";
     const draft = inBox ? gmailDraft(snap.nodes) : null;
     const recorded = await saveEmail(tr.see(app, draft ? draft.body : null));
-    return { tool: app.id, email: true, basis: app.basis, engine: (snap && snap.engine) || "", draft: !!draft, following: tr.following(), emailRecorded: recorded, seen: 0, rePrompts: 0, labels: 0 };
+    return { tool: app.id, email: true, basis: app.basis, engine: (snap && snap.engine) || "", draft: !!draft, following: tr.following(), emailRecorded: recorded, match: tr.lastLook(), seen: 0, rePrompts: 0, labels: 0 };
   }
 }

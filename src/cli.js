@@ -206,8 +206,8 @@ export async function main(argv, env = process.env, deps = {}) {
         if (e.skipped === "not_allowed") what = `the window in front was ${e.app || "an unknown app"}${e.titleShape ? ` (title pattern: ${e.titleShape})` : ""}, which does not look like an AI chat, so nothing was read`;
         else if (e.skipped === "probe_error") what = "could not read the window: " + (e.error || "unknown problem");
         else if (e.skipped) what = "skipped: " + e.skipped;
-        else if (e.email) what = `${e.tool}: ${e.draft ? "a draft box was open" : "no draft box open"}${e.following ? ", following a draft that came from an AI reply" : ""}${e.emailRecorded ? `, ${e.emailRecorded} email correction(s) recorded` : ""}` + (e.engine ? ` [${e.engine}]` : "");
-        else what = `${e.tool}: ${e.seen} message(s) on screen, ${e.labels} new follow-up(s), ${e.rePrompts} counted as corrections` + (e.engine ? ` [${e.engine}]` : "");
+        else if (e.email) what = `${e.tool}: ${e.draft ? "a draft box was open" : "no draft box open"}${e.following ? ", following a draft that came from an AI reply" : ""}${e.emailRecorded ? `, ${e.emailRecorded} email correction(s) recorded` : ""}${e.draft && !e.following && e.match ? ` (not linked to an AI reply: ${e.match.replies} AI repl${e.match.replies === 1 ? "y" : "ies"} remembered; draft ${e.match.draftWords} words; closest reply shared ${e.match.shared} three-word phrases, ${e.match.share}% of the draft; needs 6 and 25%)` : ""}` + (e.engine ? ` [${e.engine}]` : "");
+        else what = `${e.tool}: ${e.seen} message(s) on screen, ${e.labels} new follow-up(s), ${e.rePrompts} counted as corrections` + (e.repliesKept !== undefined ? `; ${e.repliesSeen} AI repl${e.repliesSeen === 1 ? "y" : "ies"} on screen, ${e.repliesKept} remembered for email` : "") + (e.engine ? ` [${e.engine}]` : "");
         say(`${hhmmss(e.at)}${e.lastAt && e.lastAt - e.at > 60000 ? "-" + hhmmss(e.lastAt) : ""}  ${what}`);
       });
       return 0;
