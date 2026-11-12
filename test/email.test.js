@@ -52,6 +52,17 @@ test("email apps: Gmail is recognised only when email reading allows it, and onl
   assert.equal(identifyEmail({ app: "Safari", title: "Compose Mail - sam@example.com - Gmail" }, ["gmail"]).id, "gmail");
   assert.equal(identifyEmail({ app: "Google Chrome", title: "Re: budget - sam@example.com - Gmail - Google Chrome - Sam (Work)" }, ["gmail"]).id, "gmail");
   assert.equal(identifyEmail({ url: "https://mail.google.com/mail/u/0/#inbox" }, ["gmail"]).id, "gmail");
+  // Google Workspace: the organisation's name replaces "Gmail" (the shape seen on a real Mac; the names here are invented)
+  assert.equal(identifyEmail({ app: "Google Chrome", title: "Workshop follow up! - sam@school.example.edu - The Example School Mail - Google Chrome - Sam (school.example.edu)" }, ["gmail"]).id, "gmail");
+  assert.equal(identifyEmail({ app: "Google Chrome", title: "Inbox (4) - sam@acme.example - Acme Corp Mail" }, ["gmail"]).id, "gmail");
+  assert.equal(identifyEmail({ app: "Google Chrome", title: "Voice Mail - Google Voice" }, ["gmail"]), null);
+  assert.equal(identifyEmail({ app: "Google Chrome", title: "Junk Mail" }, ["gmail"]), null);
+  for (const who of ["sam@seas.upenn.edu", "sam@gmail.com", "sam.lee@company.co.uk"]) assert.equal(identifyEmail({ app: "Safari", title: `Inbox - ${who} - Some Org Mail` }, ["gmail"]).id, "gmail", who);
+  // Yahoo Mail is its own app, never mistaken for Gmail
+  assert.equal(identifyEmail({ app: "Google Chrome", title: "Inbox (3) - sam@yahoo.com - Yahoo Mail - Google Chrome" }, ["gmail", "yahoo"]).id, "yahoo");
+  assert.equal(identifyEmail({ url: "https://mail.yahoo.com/d/compose/1" }, ["gmail", "yahoo"]).id, "yahoo");
+  assert.equal(identifyEmail({ app: "Google Chrome", title: "Inbox (3) - sam@yahoo.com - Yahoo Mail" }, ["gmail"]), null);
+  assert.equal(identifyEmail({ app: "Google Chrome", title: "Inbox - sam@aol.com - AOL Mail" }, ["gmail", "yahoo"]), null);
   assert.equal(identifyEmail({ url: "https://mail.google.com.evil.com/" }, ["gmail"]), null);
   assert.equal(identifyEmail({ app: "Google Chrome", title: "Inbox - Gmail" }, []), null);                    // email reading off
   assert.equal(identifyEmail({ app: "Google Chrome", title: "Inbox - Gmail" }), null);

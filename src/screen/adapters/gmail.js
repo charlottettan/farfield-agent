@@ -12,7 +12,8 @@
 //
 // Returns { body } with the draft's text, or null when there is no draft box to go on.
 const norm = (s) => String(s || "").replace(/\r/g, "").replace(/ /g, " ");
-const SKIP = /gmail_quote|gmail_extra|gmail_signature/;
+// Yahoo Mail's equivalents (yahoo_quoted, signature) are included too; not yet checked on a real dump.
+const SKIP = /gmail_quote|gmail_extra|gmail_signature|yahoo_quoted|\bsignature\b/;
 
 // Rebuilds the nesting from the flat, depth-numbered list the reader produces (document order).
 function buildTree(nodes) {

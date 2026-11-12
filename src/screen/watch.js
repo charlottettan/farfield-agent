@@ -1,7 +1,7 @@
 // One look at the screen: ask which window is in front, and only if it is an allowed AI chat (or, when email reading is on,
 // an allowed email app), read its text.
 import crypto from "node:crypto";
-import { identify, identifyEmail, chatTitle } from "./sites.js";
+import { identify, identifyEmail, chatTitle, EMAIL_APP_IDS } from "./sites.js";
 import { createObserver } from "./observer.js";
 import { createEmailTracker } from "./email.js";
 import { gmailDraft } from "./adapters/gmail.js";
@@ -15,7 +15,7 @@ function mergeById(existing, incoming) {
 }
 
 // Which email apps may be read: none unless email reading was turned on (screen email on --agree).
-export const emailAppsOf = (sc) => (sc && sc.email ? (Array.isArray(sc.emailApps) && sc.emailApps.length ? sc.emailApps : ["gmail"]) : []);
+export const emailAppsOf = (sc) => (sc && sc.email ? (Array.isArray(sc.emailApps) && sc.emailApps.length ? sc.emailApps : EMAIL_APP_IDS) : []);
 
 // The draft box only: the native reader jumps to Gmail's "Message Body" box and reads nothing at all when there is none.
 const DRAFT_READ = { engine: "native", build: false, maxNodes: 1500, timeoutMs: 20000, focus: "Message Body", focusOnly: true, tail: 400 };

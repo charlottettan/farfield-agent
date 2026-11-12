@@ -7,7 +7,7 @@ import { createAgent } from "./agent.js";
 import fs from "node:fs";
 import { startApp } from "./app.js";
 import { createProbe, ensureNative } from "./screen/probe.js";
-import { identify, identifyEmail, showTitle } from "./screen/sites.js";
+import { identify, identifyEmail, showTitle, EMAIL_APP_IDS } from "./screen/sites.js";
 import { gmailDraft } from "./screen/adapters/gmail.js";
 import { extractTurns } from "./screen/turns.js";
 import { hintsFor } from "./screen/adapters/index.js";
@@ -109,17 +109,17 @@ export async function main(argv, env = process.env, deps = {}) {
       if (process.platform !== "darwin") say("Email reading needs the native Mac reader. It is not available on this computer yet.");
       else say("If you have run `screen build` before, run it again: the reader changed.");
       if (!flags.agree) { say("\nRun the same command with --agree to turn it on."); return 0; }
-      cfg.screen = { ...(cfg.screen || {}), email: true, emailApps: ["gmail"] }; saveConfig(home, cfg); say("Email reading is on (Gmail)."); return 0;
+      cfg.screen = { ...(cfg.screen || {}), email: true, emailApps: EMAIL_APP_IDS }; saveConfig(home, cfg); say("Email reading is on (Gmail, including school and work Google accounts, and Yahoo Mail)."); return 0;
     }
     if (sub === "dump") {
       const delay = Number(flags.delay || 0);
-      if (delay > 0) { say(`Switch to the chat window now. Reading it in ${delay} seconds...`); await new Promise((r) => setTimeout(r, delay * 1000)); }
+      if (delay > 0) { say(`Switch to the ${flags.email ? "email draft" : "chat"} window now. Reading it in ${delay} seconds...`); await new Promise((r) => setTimeout(r, delay * 1000)); }
       const probe = deps.probe || createProbe(process.platform, undefined, undefined, { binDir: path.join(home, "bin") });
       const win = await probe.title();
       if (flags.email) {
         // Reads only the Gmail draft box, exactly as email reading does, to check that the draft's text is found and quotes are left out.
-        const app = identifyEmail(win, ["gmail"]);
-        say(`Front window: app "${win.app}", title "${win.title}". Recognised as: ${app ? app.name + " (by " + app.basis + ")" : "not Gmail"}.`);
+        const app = identifyEmail(win, EMAIL_APP_IDS);
+        say(`Front window: app "${win.app}", title "${win.title}". Recognised as: ${app ? app.name + " (by " + app.basis + ")" : "not an email app Farfield reads"}.`);
         if (!app) { say("Not reading it. Open a test draft in Gmail (use --delay 5 to get time) and try again."); return 1; }
         let tree;
         try { tree = await probe.tree({ engine: "native", build: false, maxNodes: 1500, timeoutMs: 20000, focus: "Message Body", focusOnly: true, tail: 400 }); }
