@@ -45,7 +45,7 @@ function parse(argv) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const k = a.slice(2);
-      if (k === "agree" || k === "delete-data" || k === "no-open" || k === "any" || k === "enable-accessibility" || k === "keep-text" || k === "memory") flags[k] = true;
+      if (k === "agree" || k === "delete-data" || k === "no-open" || k === "any" || k === "enable-accessibility" || k === "keep-text" || k === "memory" || k === "email") flags[k] = true;
       else flags[k] = argv[++i];
     } else pos.push(a);
   }

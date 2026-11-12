@@ -204,3 +204,17 @@ test("native reader: --focus-only is passed for the draft box, and other readers
   const src = fs.readFileSync(new URL("../src/screen/ax.swift", import.meta.url), "utf8");
   assert.ok(src.includes('if focusOnly && focusResult != "found" { stack = [] }'));
 });
+
+test("cli: `screen dump --email --delay 5` waits before reading (--email takes no value)", async () => {
+  const { main } = await import("../src/cli.js");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ff-email-cli-"));
+  const out = [];
+  const realTimeout = globalThis.setTimeout;
+  let waited = 0;
+  globalThis.setTimeout = (fn, ms) => { waited += ms; return realTimeout(fn, 0); };
+  try {
+    const probe = { title: async () => ({ app: "Terminal", title: "" }) };
+    await main(["screen", "dump", "--email", "--delay", "5"], { FARFIELD_HOME: home }, { probe });
+  } finally { globalThis.setTimeout = realTimeout; }
+  assert.ok(waited >= 5000, "waited " + waited + "ms; output: " + out.join(" | "));
+});
