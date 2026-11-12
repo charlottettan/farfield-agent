@@ -29,16 +29,20 @@
   .folder { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:4px 0; border-bottom:1px solid var(--line); word-break: break-all; }
   .err { color: #b3261e; } @media (prefers-color-scheme: dark) { .err { color:#ff8a80; } }
   a { color: inherit; }
+  :root { color-scheme: light; }
 </style>
+<link rel="stylesheet" href="/farfield-look.css">
 </head>
-<body>
-<main>
-  <header>
-    <h1>Farfield</h1>
+<body class="ff-panel">
+<header class="ff-bar">
+  <div class="ff-bar-in">
+    <h1 style="margin:0;margin-right:auto"><img src="/logo/primary-dark.svg" alt="Farfield"></h1>
     <div class="state"><span id="dot" class="dot"></span><span id="stateText">Checking…</span></div>
     <button id="pauseBtn" type="button">Pause</button>
     <a href="/dashboard.html" id="dashLink">Open dashboard</a>
-  </header>
+  </div>
+</header>
+<main>
 
   <section aria-labelledby="h-reads">
     <h2 id="h-reads">What Farfield reads</h2>
