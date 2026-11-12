@@ -27,6 +27,17 @@ export function stripBrowserSuffix(t) {
   return at >= 0 ? t.slice(0, at).trim() : t;
 }
 
+// Chrome also adds status notices to the end of a window title, before its own name: a heavy tab shows
+//   "Chat - Claude - High memory usage - 1.9 GB - Google Chrome - Charlotte (Person 1)"   (the first one seen on a real Mac)
+// Those notices are removed too, after the browser name and profile, so the page's own title is what is matched.
+// "Audio playing", "Camera recording" and "Microphone recording" are plausible ones that have not been seen yet.
+const STATUS_NOTICE = /\s[-–—|]\s(?:High memory usage(?:\s[-–—|]\s\d+(?:\.\d+)?\s?[KMGT]?B)?|Audio playing|Camera recording|Microphone recording)\s*$/i;
+export function stripStatusNotices(t) {
+  let prev;
+  do { prev = t; t = t.replace(STATUS_NOTICE, "").trim(); } while (t !== prev);
+  return t;
+}
+
 // The shape of a title: names of AI tools, browsers and a few common apps are kept, every other word becomes a pattern of letters and
 // digits. It shows whether a title looks like "<something> - Claude - Google Chrome" without keeping what the something is.
 const KEEP_WORDS = new Set("claude chatgpt gemini copilot google microsoft openai chrome safari firefox edge brave arc opera vivaldi mozilla chromium gmail docs sheets slides outlook word excel powerpoint terminal iterm finder slack teams zoom notion code".split(" "));
@@ -53,7 +64,7 @@ export function identify(win, allowed) {
     const hit = TOOLS.find((t) => ids.includes(t.id) && t.hosts.some((h) => host === h || host.endsWith("." + h)));
     return hit ? { ...hit, basis: "address" } : null;
   }
-  const title = stripBrowserSuffix(cleanTitle(win && win.title));
+  const title = stripStatusNotices(stripBrowserSuffix(cleanTitle(win && win.title)));
   const app = cleanTitle(win && win.app);
   if (!title && !app) return null;
   for (const t of TOOLS) {

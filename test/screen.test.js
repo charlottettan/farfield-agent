@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { identify, cleanTitle, showTitle, stripBrowserSuffix, titleShape } from "../src/screen/sites.js";
+import { identify, cleanTitle, showTitle, stripBrowserSuffix, stripStatusNotices, titleShape } from "../src/screen/sites.js";
 import { explain, createProbe, PICK_SOURCE, ensureNative, compileHelp } from "../src/screen/probe.js";
 import { shapeDump, maskNodes } from "../src/screen/shape.js";
 import { extractTurns } from "../src/screen/turns.js";
@@ -822,4 +822,24 @@ test("screen log: an entry that stays the same for a while shows its whole span,
   assert.match((await runCli(["screen", "log"], s.home, null)).out, /^Chat reading is OFF\./);
   cfg.paused = true; cfg.screen.enabled = true; saveConfig(s.home, cfg);
   assert.match((await runCli(["screen", "log"], s.home, null)).out, /^Chat reading is ON \(paused\)\./);
+});
+
+test("Chrome's status notices at the end of a window title (a heavy tab shows 'High memory usage - 1.9 GB') do not stop a chat from being recognised", () => {
+  const id = (title) => { const r = identify({ app: "Google Chrome", title }); return r && r.id; };
+  // the shape seen in a real log: "... - Claude - High memory usage - 1.9 GB - Google Chrome - Charlotte (Person 1)"
+  assert.equal(id("Chrome extension for correction tracking - Claude - High memory usage - 1.9 GB - Google Chrome - Charlotte (Person 1)"), "claude");
+  assert.equal(id("New chat - Claude - High memory usage - 1.5 GB - Google Chrome - Charlotte (Person 1)"), "claude");
+  assert.equal(id("Q3 notes - Google Gemini - High memory usage - 850 MB - Google Chrome - Work"), "gemini");
+  assert.equal(id("Q3 notes - Claude - High memory usage - 2 GB - Google Chrome"), "claude");
+  assert.equal(id("Q3 notes - Claude - High memory usage - Google Chrome - Me"), "claude");            // no size given
+  assert.equal(id("Q3 notes - Claude - Audio playing - Google Chrome - Me"), "claude");
+  assert.equal(id("Q3 notes - Claude - High memory usage - 1.9 GB - Audio playing - Google Chrome - Me"), "claude");   // more than one notice
+  assert.equal(id("Q3 notes - Claude - Google Chrome - Me"), "claude");                                  // none, as before
+  // still refused
+  assert.equal(id("Notes about Claude - High memory usage - 1.9 GB - Google Chrome - Me"), null);
+  assert.equal(id("Claude vs GPT - Google Docs - High memory usage - 1.9 GB - Google Chrome - Me"), null);
+  assert.equal(id("Inbox - Gmail - High memory usage - 1.9 GB - Google Chrome - Me"), null);
+  assert.equal(stripStatusNotices("A - Claude - High memory usage - 1.9 GB"), "A - Claude");
+  assert.equal(stripStatusNotices("A - High memory usage of the system - Claude"), "A - High memory usage of the system - Claude");   // only at the very end
+  assert.equal(stripStatusNotices("Plain"), "Plain");
 });
