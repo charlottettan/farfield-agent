@@ -61,15 +61,18 @@ export function aiSpan(replyText, draft) {
     for (const g of trigrams(line)) if (d.has(g)) { if (first < 0) first = i; last = i; break; }
   });
   if (first < 0) return String(replyText || "").trim();
+  // Blank lines between greeting, body and sign-off are stepped over (Claude's email card has them, seen on a real Mac).
+  const prevText = (i) => { let k = i - 1; while (k >= 0 && !lines[k].trim()) k--; return k; };
+  const nextText = (i) => { let k = i + 1; while (k < lines.length && !lines[k].trim()) k++; return k; };
   // keep a greeting line just above the first matching line ("Hi Tim,") since it is part of the email the AI wrote
-  if (first > 0 && /^\s*(hi|hello|hey|dear|good (morning|afternoon|evening))\b.{0,40}[,!]?\s*$/i.test(lines[first - 1])) first--;
-  // and a sign-off just after the last one ("Best," / "Thanks,") plus the name line under it
+  const g = prevText(first);
+  if (g >= 0 && /^\s*(hi|hello|hey|dear|good (morning|afternoon|evening))\b.{0,40}[,!]?\s*$/i.test(lines[g])) first = g;
+  // and a sign-off just after the last one ("Best," / "Thanks,") plus the name line right under it
   let end = last;
-  for (let k = 1; k <= 2 && last + k < lines.length; k++) {
-    const l = lines[last + k].trim();
-    if (!l) break;
-    if (k === 1 && !/^(best|thanks|thank you|regards|kind regards|cheers|sincerely|warmly)\b/i.test(l)) break;
-    end = last + k;
+  const s = nextText(last);
+  if (s < lines.length && /^(best|thanks|thank you|regards|kind regards|best regards|cheers|sincerely|warmly)\b.{0,20}$/i.test(lines[s].trim())) {
+    end = s;
+    if (s + 1 < lines.length && lines[s + 1].trim() && lines[s + 1].trim().split(/\s+/).length <= 4) end = s + 1;
   }
   return lines.slice(first, end + 1).join("\n").trim();
 }

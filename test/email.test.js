@@ -9,6 +9,7 @@ import { overlap, matchReply, aiSpan, createEmailTracker } from "../src/screen/e
 import { createScreenStep } from "../src/screen/watch.js";
 import { createProbe } from "../src/screen/probe.js";
 import { createFileStorage } from "../src/storage.js";
+import { claudeTurns } from "../src/screen/adapters/claude.js";
 import { defaults } from "../src/config.js";
 
 // An AI reply that offers options, and the email a person built from option 2 and then edited (all wording invented).
@@ -239,4 +240,34 @@ test("tracker: a draft that is not linked says why, in numbers only", () => {
   assert.equal(m.draftWords, 16);
   assert.equal(m.shared, 0);
   assert.ok(!JSON.stringify(m).includes("lunch"));
+});
+
+// Claude's reply with an email card, shaped like a real Chrome dump of claude.ai (the wording is a test chat).
+const CARD = [
+  { ...N("AXGroup", 0, "Chat messages"), sub: "AXApplicationGroup" },
+  { ...N("AXGroup", 3, "Message 1 of 2", ".rounded-lg"), sub: "AXDocumentArticle" },
+  N("AXHeading", 4, "You said: Write a short email to Tim confirming our budget meeting on Tuesday.", ".sr-only.select-none"),
+  N("AXStaticText", 5, "You said: Write a short email to Tim confirming our budget meeting on Tuesday."),
+  N("AXGroup", 4, "", ".group/bubble.relative"), N("AXStaticText", 8, "Write a short email to Tim confirming our budget meeting on Tuesday. Sign it Sam"),
+  { ...N("AXGroup", 3, "Message 2 of 2", ".rounded-lg"), sub: "AXDocumentArticle" },
+  N("AXGroup", 4, "", "_r_j2_.group/message-row.relative"),
+  N("AXHeading", 5, "Claude responded: I've drafted the email above.", ".sr-only.select-none"), N("AXStaticText", 6, "Claude responded: I've drafted the email above."),
+  N("AXStaticText", 7, "Subject:"), N("AXTextField", 6, "Confirming Tuesday's budget meeting", "_r_m2_.cds-input"),
+  N("AXTextArea", 7, "Hi Tim,\n\nJust confirming our budget meeting on Tuesday. Let me know if anything changes on your end, otherwise I'll see you then.\n\nBest,\nSam", ".cds-input.cds-reset.block"),
+  N("AXButton", 6, "Copy"), N("AXButton", 7, "Open in Mail"),
+  N("AXStaticText", 6, "I\u2019ve drafted the email above. If you tell me the time or location, I can add them."),
+  N("AXStaticText", 7, "7 minutes ago"),
+].map((n) => ({ sub: "", ...n }));
+
+test("claude: an email Claude drafts in its email card is part of its reply, so a Gmail draft built from it links up", () => {
+  const r = claudeTurns(CARD);
+  assert.deepEqual(r.turns.map((t) => t.role), ["user", "assistant"]);
+  const reply = r.turns[1].text;
+  assert.ok(reply.includes("Just confirming our budget meeting on Tuesday."), reply);
+  assert.ok(!reply.includes("Open in Mail") && !reply.includes("minutes ago"));
+  const draft = "Hi Tim,\nJust confirming our budget meeting on Tuesday at 2pm. Let me know if anything changes on your end, otherwise see you then.\nBest,\nSam";
+  assert.ok(matchReply(draft, [{ text: reply, tool: "Claude" }]), "the edited draft is linked to Claude's reply");
+  const span = aiSpan(reply, draft);
+  assert.ok(span.startsWith("Hi Tim,") && span.endsWith("Best,\nSam"), span);
+  assert.ok(!span.includes("drafted the email above") && !span.includes("Subject"), span);
 });
