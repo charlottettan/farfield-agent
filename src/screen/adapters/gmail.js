@@ -53,5 +53,7 @@ export function gmailDraft(nodes) {
     }
   })(box);
   const body = lines.length ? lines.join("\n") : cutQuoted(box.text);
-  return { body: body.trim() };
+  // The box's own page id (the part of its DOM name before the first class, e.g. ":qk"), so two open drafts are told apart.
+  const id = String(box.dom || "").split(".")[0];
+  return { body: body.trim(), id };
 }

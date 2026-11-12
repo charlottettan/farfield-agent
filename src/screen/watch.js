@@ -109,7 +109,7 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
     // Anything that is not the draft box, read by the native reader, is thrown away without being looked at.
     const inBox = !!snap && snap.engine === "native" && snap.focus === "found";
     const draft = inBox ? gmailDraft(snap.nodes) : null;
-    const recorded = await saveEmail(tr.see(app, draft ? draft.body : null));
+    const recorded = await saveEmail(tr.see(app, draft ? draft.body : null, draft ? draft.id : ""));
     return { tool: app.id, email: true, basis: app.basis, engine: (snap && snap.engine) || "", draft: !!draft, following: tr.following(), emailRecorded: recorded, match: tr.lastLook(), seen: 0, rePrompts: 0, labels: 0 };
   }
 }

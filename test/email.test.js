@@ -271,3 +271,21 @@ test("claude: an email Claude drafts in its email card is part of its reply, so 
   assert.ok(span.startsWith("Hi Tim,") && span.endsWith("Best,\nSam"), span);
   assert.ok(!span.includes("drafted the email above") && !span.includes("Subject"), span);
 });
+
+test("tracker: when the followed draft box closes and another one (a reply box behind it) is in view, the followed email is recorded", () => {
+  let t = 0;
+  const tr = createEmailTracker({ now: () => t });
+  const GMAIL = { id: "gmail", name: "Gmail", surface: "Gmail" };
+  tr.noteReplies("Claude", [REPLY]);
+  t += 10_000; tr.see(GMAIL, aiSpan(REPLY, SENT), ":qk");
+  t += 10_000; tr.see(GMAIL, SENT, ":qk");
+  t += 10_000; const done = tr.see(GMAIL, "Hi T", ":9x");               // the pop-up closed; an old reply box is what is left
+  assert.equal(done.correction.surface, "Gmail");
+  assert.ok(done.correction.editedSnippet.includes("November 18") || done.correction.wordsAdded > 0);
+  assert.equal(tr.following(), false);                                   // "Hi T" is not from an AI reply, so it is not followed
+});
+
+test("gmail draft: the box's own page id comes back with the text", () => {
+  assert.equal(gmailDraft(draftNodes(SENT)).id, "");
+  assert.equal(gmailDraft([N("AXTextArea", 0, "Hi T", ":qk.Am.aiL.Al.editable"), N("AXStaticText", 1, "Hi T")]).id, ":qk");
+});

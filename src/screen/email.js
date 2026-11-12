@@ -116,13 +116,21 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
 
   // One look at an email draft box. body: the draft's text, or null when the email app is in front but no draft box is open.
   // Returns a finished record when a followed draft has ended, otherwise null.
-  function see(app, body) {
+  // boxId: the page's own id for this draft box (Gmail gives each one, e.g. ":qk"). Optional.
+  function see(app, body, boxId = "") {
     const t = now();
     if (body === null || body === undefined) return finish("closed");       // the draft box went away
     const text = String(body).trim();
+    // A different draft box than the one being followed: the followed email is done. Seen on a real Mac: closing a new-email
+    // pop-up left a reply box open in the thread behind it, which would otherwise have been taken for the same email.
+    if (draft && boxId && draft.boxId && boxId !== draft.boxId) {
+      const done = finish("closed");
+      start(app, text, t, boxId);
+      return done;
+    }
     // While the draft box stays open it is the same email, however much it is rewritten. Rewriting it completely is a correction too.
-    if (draft) { if (text) draft.last = text; draft.lastAt = t; return null; }
-    start(app, text, t);
+    if (draft) { if (text) draft.last = text; draft.lastAt = t; if (boxId && !draft.boxId) draft.boxId = boxId; return null; }
+    start(app, text, t, boxId);
     return null;
   }
 
@@ -130,7 +138,7 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
   // closest reply came, so a draft that was not followed can be explained.
   let last = { replies: 0, draftWords: 0, shared: 0, share: 0 };
 
-  function start(app, text, t) {
+  function start(app, text, t, boxId = "") {
     const live = replies.filter((r) => t - r.at <= REPLY_TTL);
     let best = { shared: 0, share: 0 };
     for (const r of live) { const o = overlap(text, r.text); if (o.shared > best.shared) best = o; }
@@ -138,7 +146,7 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
     const hit = text ? matchReply(text, live) : null;
     if (!hit) return;                                                        // not from an AI reply seen here: nothing is kept
     const ai = aiSpan(hit.text, text);
-    draft = { app: app.id, surface: app.surface || app.name, tool: hit.tool, ai, last: text, firstAt: t, lastAt: t, key: h(app.id + "|" + ai).slice(0, 14) };
+    draft = { app: app.id, boxId, surface: app.surface || app.name, tool: hit.tool, ai, last: text, firstAt: t, lastAt: t, key: h(app.id + "|" + ai).slice(0, 14) };
   }
 
   // Called on every look, whatever is in front, so a draft left open and forgotten still ends.
