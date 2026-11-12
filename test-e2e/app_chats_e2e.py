@@ -20,12 +20,20 @@ import('./src/screen/observer.js').then(({ createObserver }) => {
     [{ id: 'gemini', name: 'Gemini' }, 'Gemini', 'Summarize the Q3 earnings call for Acme Corp', 'Make it shorter and more formal'],
     [{ id: 'claude', name: 'Claude' }, 'Claude', 'Summarize the board meeting from last week', 'Use bullet points, not paragraphs'],
     [{ id: 'claude', name: 'Claude' }, 'Claude', 'Draft an email to the client about the delayed settlement', 'It is too stiff, make it warmer'],
+    [{ id: 'claude', name: 'Claude' }, 'Claude', 'Good morning, are you there', 'That is wrong, I meant the other one'],
   ];
   for (const [tool, who, first, fix] of chats) {
-    const base = L(['You', first], [who, 'Here is a first version.']);
+    const base = L(['You', first], [who, 'Here is a first version of: ' + first]);   // each chat's own reply, so chats are not mistaken for one another
     add(o.feed({ nodes: base }, tool)); t += 40000;
     add(o.feed({ nodes: [...base, ...L(['You', fix])] }, tool)); t += 1000;
   }
+  // one chat that moves on to a new request partway through: the new request is its own workflow, not a re-prompt
+  const g = { id: 'gemini', name: 'Gemini' };
+  const s1 = L(['You', 'Summarize the risk committee minutes'], ['Gemini', 'Five points from the minutes.']);
+  add(o.feed({ nodes: s1 }, g)); t += 40000;
+  const s2 = [...s1, ...L(['You', 'Great. Now draft an email to the board sending this summary.'], ['Gemini', 'Dear board, attached is the summary.'])];
+  add(o.feed({ nodes: s2 }, g)); t += 40000;
+  add(o.feed({ nodes: [...s2, ...L(['You', 'Make it less formal'])] }, g)); t += 1000;
   process.stdout.write(JSON.stringify(out));
 });"""], cwd=AGENT, capture_output=True, text=True)
 data = json.loads(gen.stdout)
@@ -41,7 +49,8 @@ try:
     with sync_playwright() as pw:
         b = pw.chromium.launch(); c = b.new_context(viewport={"width": 1280, "height": 1200}); pg = c.new_page(); pg.goto(link)
         names = sorted({r["workflow"] for r in data["rePrompts"]})
-        check("the records name workflows by kind of task, not by tool", names == ["Email draft", "Summary"], str(names))
+        check("the records name workflows by kind of task, and an unsortable chat is marked unsorted", names == ["Claude chat (unsorted)", "Email draft", "Summary"], str(names))
+        check("a new request partway through a chat is not a re-prompt; the fix to it is", not any("board" in (r.get("text") or "") for r in data["rePrompts"]) and sum(1 for r in data["rePrompts"] if r["workflow"] == "Email draft") == 2, json.dumps([(r["workflow"], r.get("text")) for r in data["rePrompts"]]))
         dash = c.new_page(); dash.goto(BASE + "/dashboard.html#/trace")
         end = time.time() + 15
         while time.time() < end and "Email draft" not in dash.inner_text("body"): time.sleep(0.3)
@@ -51,7 +60,15 @@ try:
         summary_row = text[text.find("Summary"):][:200]
         check("the Summary workflow holds the chats from both tools", "Gemini" in summary_row and "Claude" in summary_row, summary_row)
         check("it shows both re-prompts", "2 re-prompts" in summary_row, summary_row)
-        check("and no longer lumps chats into 'Unassigned workflow' or one row per tool", "Unassigned workflow" not in text and "Claude chat" not in text and "Gemini chat" not in text)
+        check("and no longer lumps chats into 'Unassigned workflow' or one row per tool", "Unassigned workflow" not in text and "Gemini chat" not in text and not re.search(r"Claude chat(?! \(unsorted\))", text))
+        dash.goto(BASE + "/dashboard.html#workflows")
+        end = time.time() + 15
+        while time.time() < end and "Grouped by kind of task" not in dash.inner_text("body"): time.sleep(0.3)
+        text = dash.inner_text("body")
+        check("each workflow row says how its chats were grouped", "Grouped by kind of task: every task that began with a summary request, from" in text, text[:600])
+        check("the unsorted row says it is not a real group", "Not a real group. This Claude chat could not be sorted" in text)
+        check("the subtitle explains naming and that fixes are re-prompts, not new rows", "Fixes to the AI\u2019s answer are counted as re-prompts" in text)
+        dash.screenshot(path=os.environ.get("SHOT", root + "/workflows.png"), full_page=True)
         b.close()
 finally:
     proc.terminate()

@@ -724,10 +724,24 @@ async function splitWorkflowByChat(from) {
   $("wfStatus").textContent = "Created " + plan.created + " workflows, one per chat.";
 }
 
+// How a workflow row came to hold its chats, read from its name, so a row never shows chats grouped together without saying why.
+// Keep TASK_KINDS in step with KINDS in src/screen/task.js.
+const TASK_KINDS = ["Spreadsheet help", "Slides", "Code", "Email draft", "Summary", "Job application", "Social post or announcement", "Memo or report",
+  "Compliance writing", "Meeting prep", "Research and analysis", "Editing", "Brainstorming", "Advice and decisions", "Planning"];
+function groupingNote(w) {
+  const tools = listJoin(w.sites || []);
+  if (TASK_KINDS.indexOf(w.name) >= 0)
+    return { cls: "kind", text: "Grouped by kind of task: every task that began with " + (/^[aeiou]/i.test(w.name) ? "an " : "a ") + w.name.toLowerCase() + " request" + (tools ? ", from " + tools : "") + ". Only this label is kept, never the message." };
+  const m = /^(.+) chat \(unsorted\)$/.exec(w.name);
+  if (m) return { cls: "unsorted", text: "Not a real group. " + (w.sessions > 1 ? "These " + m[1] + " chats" : "This " + m[1] + " chat") + " could not be sorted: the opening request matched no kind of task, or the chat began before the watcher saw it. " + (w.sessions > 1 ? "Split them, then rename or merge each one." : "Rename it, or merge it into the right workflow.") };
+  if (/^(.+) chat$/.test(w.name)) return { cls: "tool", text: "Grouped by tool only: every " + w.name.replace(/ chat$/, "") + " chat, whatever the task (the watcher\u2019s \u201ctool\u201d naming)." };
+  return { cls: "named", text: w.sessions > 1 ? "Grouped by name: these chats share a name you gave them, an opening line, or a merge." : "One chat, named after its tool and start time, its opening line, or by you." };
+}
+
 function renderWorkflows() {
   const mode = store.settings.workflowMode === "fixed" ? "fixed" : "perChat";
   $("wfSub").textContent = mode === "perChat"
-    ? "A new workflow opens automatically for every new AI chat. Rename one to describe the job, or give two chats the same name to group them. Change this behavior in the popup."
+    ? "Chats are grouped by their workflow\u2019s name, and each row says how it got that name. The desktop watcher names a chat by its kind of task (\u201cSummary\u201d, \u201cEmail draft\u201d), so the same kind of task shares a row across tools and people, and a new request in the same chat starts its own row. Fixes to the AI\u2019s answer are counted as re-prompts, not new rows. The browser extension opens a new workflow for every chat. Rename a row to describe the job, or give two the same name to group them."
     : "Fixed mode: every new AI chat goes into the workflow chosen in the popup. Switch the popup to automatic to open a new workflow for each chat.";
   const rows = A.listWorkflows(currentData());
   const dl = $("wfnames");
@@ -742,8 +756,10 @@ function renderWorkflows() {
     top.appendChild(el("span", "wf-name", w.name));
     top.appendChild(el("span", w.live ? "live-badge" : "sample-badge", w.live ? "Live" : "Sample"));
     card.appendChild(top);
+    const why = groupingNote(w);
+    card.appendChild(el("div", "wf-why wf-why-" + why.cls, why.text));
     const secs = w.reviewSeconds + w.writeSeconds;
-    card.appendChild(el("div", "wf-meta", w.sessions + (w.sessions === 1 ? " chat, " : " chats, ") + w.attempts + " attempts, " + w.rePrompts + " re-prompts saved" + (w.files ? ", " + w.files + (w.files === 1 ? " output file" : " output files") : "") + (secs ? ", " + fmtSecs(secs) + " reviewing and writing" : "") + (w.lastAt ? ", last used " + fmtDate(w.lastAt) : "")));
+    card.appendChild(el("div", "wf-meta", w.sessions + (w.sessions === 1 ? " chat, " : " chats, ") + w.attempts + " attempts, " + w.rePrompts + (w.rePrompts === 1 ? " re-prompt saved" : " re-prompts saved") + (w.files ? ", " + w.files + (w.files === 1 ? " output file" : " output files") : "") + (secs ? ", " + fmtSecs(secs) + " reviewing and writing" : "") + (w.lastAt ? ", last used " + fmtDate(w.lastAt) : "")));
     const actions = el("div", "actions");
     const open = !!store.openWf[w.name];
     const edit = el("button", "btn secondary", open ? "Cancel" : "Rename or merge");

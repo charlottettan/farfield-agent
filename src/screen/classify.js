@@ -11,6 +11,7 @@
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const A = require("../../vendor/analysis.js");
+import { taskKind } from "./task.js";
 
 export const EPISODE_GAP_MINUTES = 45;
 export const COUNT_AS_REWORK_AT = 0.6;
@@ -19,12 +20,22 @@ const STOP = new Set("a an the and or but if then so to of in on at for with fro
 const tokens = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9%$.\-\s]/g, " ").split(/\s+/).map((w) => w.replace(/^[.\-]+|[.\-]+$/g, "")).filter((w) => w && !STOP.has(w));
 const caps = (s) => (String(s || "").match(/(?<![.!?]\s)(?<!^)\b[A-Z][a-z]{2,}\b|\b\d[\d,.]*%?/g) || []).map((w) => w.toLowerCase());
 
-const ACCEPT = /^(thanks|thank you|thx|great|perfect|looks good|that works|ok(ay)?|got it|nice|awesome|cool|good|that'?s (it|all|great|perfect))\b[^?]{0,40}$/i;
+const ACCEPT = /^(thanks|thank you|thx|great|perfect|looks good|that works|ok(ay)?|got it|nice|awesome|cool|good|that'?s (it|all|great|perfect|right|correct)|(yes|yep|yeah),? (that'?s|this is) (right|correct|it))\b[^?]{0,40}$/i;
 const NEW_CUE = /^(new (task|question|topic|request)|different (question|topic|task)|separate(ly)?|switching (gears|topics)|unrelated|on (a )?different note|now (let'?s|i need|help me|can you help)|next( task| up)?[,:]|i also need|another (task|thing|request))\b/i;
 const EXT_CUE = /^(also|and also|additionally|now add|next add|can you also|could you also|add (a|an|another|one more)|one more thing)\b/i;
-const STRONG_NEG = /\b(wrong|incorrect|not (right|correct|what)|that'?s not|isn'?t|aren'?t|doesn'?t|didn'?t|mistake|error|should be|should have|instead|actually|fix|redo|rewrite|too (long|short|formal|casual|vague|wordy|generic)|shorter|longer|remove|delete|replace|change|don'?t|do not|stop|missing|forgot|left out|off by|not matching|doesn'?t match|expected|meant|asked for|supposed to|supposed to be)\b/i;
+const STRONG_NEG = /\b(wrong|incorrect|not (right|correct|what)|that'?s not|isn'?t|aren'?t|doesn'?t|didn'?t|mistake|error|should be|should have|instead|actually|fix|redo|rewrite|too (long|short|formal|casual|vague|wordy|generic)|shorter|longer|remove|delete|replace|change|don'?t|do not|stop|missing|forgot|left out|off by|not matching|doesn'?t match|expected|meant|asked for|unclear|confusing|vague|leaves? out|omits?|omitted|skips?|skipped|supposed to|supposed to be|again|try again|more concise|less \w+|too \w+)\b|\w*(error|exception)\b|\b(traceback|throws|crash(es|ed)?|fails?|failed|failing|broken|doesn'?t work|not working|returns? (#|nan|null|undefined|nothing|blank|zero))|#(n\/a|ref!?|value!?|div\/0!?|name\?)/i;
 const EDIT_VERB = /^(please\s+)?(make|rewrite|rephrase|reword|shorten|lengthen|tighten|simplify|soften|change|adjust|tweak|fix|redo|trim|cut|expand|reduce|use|replace|rename|reorder|reformat)\b/i;
 const REFERS_BACK = /\b(it|this|that|these|those|above|earlier|previous|last|you (wrote|said|put|used|gave|included)|the (table|chart|summary|paragraph|slide|number|figure|section|draft|email|memo|output|answer|first|second|third|bullet|list))\b/i;
+// "Great. Now ..." / "Ok, ..." : a short thanks in front of a real request. It is dropped before the request is read.
+const PREAMBLE = /^(?:great|ok(?:ay)?|thanks|thank you|thx|perfect|cool|nice|awesome|got it|sounds good|good|alright|all right)\b[\s,.!:;-]+(?=\S)/i;
+// polite openers in front of an edit ("can you make it less formal?")
+const ASK = /^(?:(?:can|could|would|will) you\s+(?:please\s+)?|please\s+)/i;
+// asks the AI to produce a new piece of work, as opposed to changing the one it just gave
+const MAKE = /^(?:(?:and|also|now|next|then|ok(?:ay)?|so)[,:]?\s+)*(?:(?:can|could|would|will) you\s+(?:also\s+|please\s+|now\s+)*|please\s+|i (?:also )?(?:need|want) you to\s+|help me\s+(?:to\s+)?)?(?:(?:also|now|then)\s+)?(write|draft|create|make|prepare|build|compose|generate|put together|come up with|give me|set up|outline|plan|summari[sz]e|translate)\s+(?:me\s+|up\s+)?(\S+)/i;
+const REF_OBJECT = /^(it|this|that|these|those|them|the|one|a\s+(?:shorter|longer|better|new version|revised|different version))\b/i;
+// "for this function", "of this", "to it": the request is about the AI's output (a relative "that", as in "a macro that emails", is not)
+const POINTS_AT_OUTPUT = /\b(?:of|for|to|from|on|with|in|into|using|about|around|based on)\s+(?:it|this|these|those|that (?!\w+s\b)|the (?:above|output|answer|code|function|formula|table|summary|draft|email|memo|script|query|data))\b|\b(?:of|for|to|from|on|with)\s+(?:it|this|that)\s*[.?!]?$/i;
+const SEPARATE = /\b(separate|another|different|new|unrelated)\b/i;
 const QUESTION = /\?\s*$|^(why|how|what|which|where|when|who|can you explain|explain|could you explain|is (it|that|this)|are (these|those))\b/i;
 
 function containment(a, b) {
@@ -36,12 +47,16 @@ function containment(a, b) {
 }
 
 // prev: { user, assistant }   gapSeconds: time since the AI's last reply appeared
+// prev.task: the label of the task under way ("Summary"), when known. Without it the kind is read from prev.user.
 export function classifyTurn(text, prev = {}, gapSeconds = 0) {
-  const t = String(text || "").trim();
+  const whole = String(text || "").trim();
   const reasons = [];
-  if (!t) return { label: "acceptance", confidence: 0.5, reasons: ["empty message"] };
-  if (ACCEPT.test(t)) return { label: "acceptance", confidence: 0.9, reasons: ["thanks or approval"] };
+  if (!whole) return { label: "acceptance", confidence: 0.5, reasons: ["empty message"] };
+  if (ACCEPT.test(whole)) return { label: "acceptance", confidence: 0.9, reasons: ["thanks or approval"] };
+  const t = whole.replace(PREAMBLE, "").trim() || whole;
   if (NEW_CUE.test(t)) return { label: "new_task", confidence: 0.9, reasons: ["says it is a new or separate request"] };
+  const fresh0 = newWork(t, prev);
+  if (fresh0) return fresh0;
   if (gapSeconds > EPISODE_GAP_MINUTES * 60 && !STRONG_NEG.test(t)) return { label: "new_task", confidence: 0.75, reasons: ["came back after a long pause with a fresh request"] };
 
   const ctx = tokens((prev.assistant || "") + " " + (prev.user || ""));
@@ -56,7 +71,7 @@ export function classifyTurn(text, prev = {}, gapSeconds = 0) {
   const known = A.classifyPrompt(t).isCorrection;
   const back = REFERS_BACK.test(t);
   const ext = EXT_CUE.test(t);
-  const q = QUESTION.test(t) && !neg;
+  const q = QUESTION.test(t) && !neg && !(EDIT_VERB.test(t.replace(ASK, "")) && back);   // "can you make it shorter?" is an edit, not a question
 
   let corr = 0, extn = 0, ques = 0, fresh = 0;
   const why = { corr: [], ext: [], ques: [], fresh: [] };
@@ -65,7 +80,7 @@ export function classifyTurn(text, prev = {}, gapSeconds = 0) {
   if (back) { corr += 0.2; why.corr.push("refers to the AI's output"); }
   if (overlap >= 0.35) { corr += 0.2; why.corr.push("reuses the same words as the last answer"); }
   else if (overlap >= 0.2) corr += 0.1;
-  const editsOutput = EDIT_VERB.test(t) && t.length <= 160 && newEntities < 3;
+  const editsOutput = EDIT_VERB.test(t.replace(ASK, "")) && t.length <= 160 && newEntities < 3;
   if (editsOutput) { corr += 0.3; why.corr.push("asks to change how the output is worded or laid out"); }
   if (t.length <= 160) corr += 0.1;
   if (newEntities >= 3) { corr -= 0.3; why.corr.push("but introduces several new names or numbers"); }
@@ -90,6 +105,26 @@ export function classifyTurn(text, prev = {}, gapSeconds = 0) {
   return { label, confidence: Math.round(confidence * 100) / 100, reasons: r.length ? r : reasons };
 }
 
+// A request for a new piece of work: "Now draft an email to the board", "Can you also write a LinkedIn post", "Also draft a separate email".
+// It is a new task when it is a different kind of task from the one under way, or says it is separate/another.
+// Asking for a new version of the same thing ("write it again", "give me a shorter one") is not: that is a correction.
+function newWork(t, prev) {
+  const m = MAKE.exec(t);
+  if (!m) return null;
+  const rest = t.slice(m.index + m[0].length - m[2].length);
+  if (REF_OBJECT.test(rest) && !SEPARATE.test(rest.split(/\s+/).slice(0, 3).join(" "))) return null;     // "make it shorter", "write the intro again"
+  if (STRONG_NEG.test(t)) return null;
+  const kind = taskKind(t);
+  const current = prev.task || (taskKind(prev.user || "") || {}).label || "";
+  if (SEPARATE.test(t.slice(0, 80)) && kind) return { label: "new_task", confidence: 0.85, reasons: ["asks for another, separate piece of work"] };
+  if (kind && current && kind.label !== current) return { label: "new_task", confidence: 0.85, reasons: ["asks for a new " + kind.label.toLowerCase() + ", a different kind of task from the " + current.toLowerCase() + " under way"] };
+  if (kind && !current && !REFERS_BACK.test(t)) return { label: "new_task", confidence: 0.7, reasons: ["asks for a new " + kind.label.toLowerCase() + " and does not refer to the last answer"] };
+  // a new piece of the same task that points at the output ("write a test for this function", "make a pivot table of this"): more work, not a fix.
+  // Anything else is left to the scoring below.
+  if (!POINTS_AT_OUTPUT.test(t)) return null;
+  return { label: "extension", confidence: 0.65, reasons: ["asks for an additional piece of work on the same task, not a fix"] };
+}
+
 export function countsAsRework(c) { return c.label === "correction" && c.confidence >= COUNT_AS_REWORK_AT; }
 
 // messages: [{ role: "user"|"assistant", text, at? (ms) }, ...] in order. Works on a live capture, an imported chat or a vendor log.
@@ -103,12 +138,12 @@ export function classifyConversation(messages) {
     if (!m || !m.text) continue;
     if (m.role === "assistant") { prev.assistant = m.text; lastAssistantAt = m.at || 0; continue; }
     userCount++;
-    if (userCount === 1) { prev.user = m.text; continue; }
+    if (userCount === 1) { prev.user = m.text; prev.task = (taskKind(m.text) || {}).label || ""; continue; }
     const gap = m.at && lastAssistantAt ? Math.max(0, (m.at - lastAssistantAt) / 1000) : 0;
     const c = classifyTurn(m.text, prev, gap);
     if (c.label === "new_task") episode++;
     out.push({ index: userCount, text: m.text, episode, ...c, rework: countsAsRework(c) });
-    if (c.label === "new_task") prev = { user: m.text, assistant: "" }; else prev.user = m.text;
+    if (c.label === "new_task") prev = { user: m.text, assistant: "", task: (taskKind(m.text) || {}).label || "" }; else prev.user = m.text;
   }
   return out;
 }

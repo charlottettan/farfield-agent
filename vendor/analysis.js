@@ -976,11 +976,12 @@
   function listWorkflows(current) {
     const map = {};
     function row(name) {
-      if (!map[name]) map[name] = { name: name, sessions: 0, attempts: 0, rePrompts: 0, files: 0, reviewSeconds: 0, writeSeconds: 0, lastAt: 0, live: 0, sample: 0 };
+      if (!map[name]) map[name] = { name: name, sessions: 0, attempts: 0, rePrompts: 0, files: 0, reviewSeconds: 0, writeSeconds: 0, lastAt: 0, live: 0, sample: 0, sites: [] };
       return map[name];
     }
     (current.aiSessions || []).forEach(function (x) {
       const r = row(x.workflow); r.sessions++; r.attempts += x.attempts || 0; r.lastAt = Math.max(r.lastAt, x.lastAt || 0);
+      if (x.site && r.sites.indexOf(x.site) < 0) r.sites.push(x.site);
       if (x.source === "seed") r.sample++; else r.live++;
     });
     (current.rePrompts || []).forEach(function (x) {

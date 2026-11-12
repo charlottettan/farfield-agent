@@ -8,11 +8,16 @@ const KINDS = [
   ["Code", /\b(code|python|javascript|typescript|sql|script|function|regex|debug|api|query|bug)\b/g],
   ["Email draft", /\b(e-?mails?|reply to|draft (?:a |an |the )?(?:reply|response|message|note)|follow[- ]?up|write (?:a |an )?(?:note|message) to)\b/g],
   ["Summary", /\b(summar(?:y|ize|ise|ies)|recap|tl;?dr|key points|takeaways?|digest|boil (?:it )?down)\b/g],
+  ["Job application", /\b(r[eé]sum[eé]s?|cv|cover letters?|job applications?|applying for|interview prep|prepare for (?:an?|my) interview|personal statement)\b/g],
+  ["Social post or announcement", /\b(linkedin|tweets?|twitter|instagram|blog(?: post)?|newsletter|announcement|announc(?:e|ing)|press release|caption|social media|posts?(?!-))\b/g],
   ["Memo or report", /\b(memo|report|write[- ]?up|white ?paper|proposal|letter|policy|procedure|checklist|one[- ]pager)\b/g],
   ["Compliance writing", /\b(compliance|disclosure|disclaimer|kyc|aml|regulat\w*|audit|risk committee)\b/g],
   ["Meeting prep", /\b(talking points|agenda|meeting|call prep|questions for|prep(?:are)? for)\b/g],
   ["Research and analysis", /\b(analy[sz]e|analysis|compare|comparison|research|explain|what is|how does|why did|forecast|estimate|valuation|dcf|model)\b/g],
   ["Editing", /\b(proofread|rewrite|rephrase|edit|polish|translate|shorten|simplify|improve)\b/g],
+  ["Brainstorming", /\b(brainstorm\w*|ideas?|suggestions?|names for|come up with|options for)\b/g],
+  ["Advice and decisions", /\b(should i|should we|pros and cons|decide|decision|whether (?:to|or not)|advice|advise|think through|trade-?offs?|which (?:one|option) is better)\b/g],
+  ["Planning", /\b(plan|planning|schedule|timeline|roadmap|itinerary|milestones?|to-?do list|prioriti[sz]e)\b/g],
 ];
 
 export function taskKind(text) {
