@@ -120,13 +120,15 @@ test("tracker: an AI draft that was edited and then closed becomes one Gmail cor
   assert.equal(tr.following(), false);
 });
 
-test("tracker: a draft left open is closed after 30 minutes, and AI replies are forgotten after 3 hours", () => {
+test("tracker: a draft not seen for 3 minutes is recorded, and AI replies are forgotten after 3 hours", () => {
   let t = 0;
   const tr = createEmailTracker({ now: () => t, mode: "off" });
   const GMAIL = { id: "gmail", name: "Gmail", surface: "Gmail" };
   tr.noteReplies("Claude", [REPLY]);
   tr.see(GMAIL, SENT);
-  t += 31 * 60 * 1000;
+  t += 2 * 60 * 1000;
+  assert.equal(tr.tick(), null, "not yet after 2 minutes");
+  t += 61 * 1000;
   const done = tr.tick();
   assert.equal(done.correction.ended, "idle");
   assert.equal(done.correction.originalSnippet, "[text not stored]");  // "off" keeps no wording
@@ -288,4 +290,53 @@ test("tracker: when the followed draft box closes and another one (a reply box b
 test("gmail draft: the box's own page id comes back with the text", () => {
   assert.equal(gmailDraft(draftNodes(SENT)).id, "");
   assert.equal(gmailDraft([N("AXTextArea", 0, "Hi T", ":qk.Am.aiL.Al.editable"), N("AXStaticText", 1, "Hi T")]).id, ":qk");
+});
+
+test("tracker: a draft recorded after 3 minutes away and then seen again is updated in place, with the same id and start time", () => {
+  let t = 1_000_000;
+  const tr = createEmailTracker({ now: () => t, mode: "full" });
+  const GMAIL = { id: "gmail", name: "Gmail", surface: "Gmail" };
+  tr.noteReplies("Gemini", [REPLY]);
+  tr.see(GMAIL, aiSpan(REPLY, SENT));
+  const startedAt = t;
+  assert.deepEqual(tr.status(), { tool: "Gemini", surface: "Gmail", since: startedAt, endsAfterIdle: 3 });
+  t += 4 * 60 * 1000;
+  const first = tr.tick();                                   // looked away (another window) for 4 minutes
+  assert.equal(first.correction, null, "nothing was changed yet, so only a send is recorded");
+  assert.equal(first.send.id.startsWith("em_"), true);
+  assert.equal(tr.status(), null);
+  tr.see(GMAIL, aiSpan(REPLY, SENT));                         // came back to the same draft, still open
+  t += 60 * 1000;
+  tr.see(GMAIL, SENT);                                        // edited it
+  const done = tr.see(GMAIL, null);                           // and sent it
+  assert.equal(done.send.id, first.send.id, "the same email keeps its id, so its send replaces the first one");
+  assert.ok(done.correction && done.correction.id === first.send.id);
+  assert.equal(done.correction.activeSeconds, Math.round((t - startedAt) / 1000), "time counts from when it was first seen");
+});
+
+test("screen step: an email sent and then left (another window in front) is recorded within 3 minutes, as one send, and the page is told while it is followed", async () => {
+  const s = setup({ email: true });
+  s.state.win = GEMINI_WIN; s.state.tree = () => ({ engine: "native", nodes: CHAT });
+  await s.next();
+  s.state.win = GMAIL_WIN;
+  s.state.tree = () => ({ engine: "native", focus: "found", nodes: draftNodes(SENT) });
+  assert.equal((await s.next()).following, true);
+  const shown = (await s.storage.local.get(["emailFollowing"])).emailFollowing;
+  assert.equal(shown.tool, "Gemini"); assert.equal(shown.surface, "Gmail");
+  assert.ok(!JSON.stringify(shown).includes("Tim"), "the status holds no text");
+  s.state.win = { app: "Terminal", title: "zsh" };          // sent, then went straight to another window: Gmail never seen without the box
+  for (let i = 0; i < 19; i++) await s.next();              // just over 3 minutes of looks
+  const d = await s.storage.local.get(["corrections", "sends", "emailFollowing"]);
+  assert.equal(d.corrections.length, 1);
+  assert.equal(d.corrections[0].workflow, "Email draft");
+  assert.equal(d.corrections[0].ended, "idle");
+  assert.equal(d.sends.filter((x) => x.surface === "Gmail").length, 1);
+  assert.equal(d.emailFollowing, null, "the page no longer shows it as followed");
+  s.state.win = GMAIL_WIN;                                  // the draft was in fact still open: picked up again, and recorded once
+  await s.next();
+  s.state.tree = () => ({ engine: "native", focus: "missing", nodes: [] });
+  await s.next();
+  const e = await s.storage.local.get(["corrections", "sends"]);
+  assert.equal(e.corrections.length, 1);
+  assert.equal(e.sends.filter((x) => x.surface === "Gmail").length, 1);
 });

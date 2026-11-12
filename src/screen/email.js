@@ -7,8 +7,11 @@
 //      them (the person wrote it themselves) is dropped straight away and nothing about it is kept.
 //   3. A draft that does come from a reply is followed. The "AI version" is only the part of the reply the draft was built from
 //      (a reply that offers three options and a preamble is cut down to the option that was used).
-//   4. When the draft box goes away (sent, discarded or closed), or has not been seen for 30 minutes, the last version seen is
+//   4. When the draft box goes away (sent, discarded or closed), or has not been seen for 3 minutes, the last version seen is
 //      compared with the AI version, using the same comparison as Word files, and one correction is produced (surface "Gmail").
+//      3 minutes, so an email that is sent and then left behind (the person moved to another window before the next look) is
+//      still recorded soon. If the same draft is seen again later, it is followed again and its record is updated in place
+//      (same id, same start time), never added a second time.
 //
 // What it cannot know: whether the email was actually sent or thrown away (the reader only sees the draft box), and any edit made
 // in the last few seconds before sending (the screen is looked at about every 10 seconds).
@@ -20,7 +23,7 @@ const L = require("../../vendor/office-logic.js");
 
 const MAX_REPLIES = 20;
 const REPLY_TTL = 3 * 3600 * 1000;
-const DRAFT_IDLE = 30 * 60 * 1000;
+export const DRAFT_IDLE = 3 * 60 * 1000;
 const MIN_SHARED = 6;          // at least this many three-word phrases in common
 const MIN_SHARE = 0.25;        // and at least this share of the draft's phrases found in the reply
 
@@ -84,6 +87,7 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
   const h = (s) => crypto.createHash("sha256").update(salt + "|" + s).digest("hex");
   let replies = [];               // { text, tool, at }   in memory only
   let draft = null;               // { app, ai, tool, last, firstAt, lastAt, key }
+  const ended = new Map();        // key -> when that email was first seen, so a draft picked up again keeps its start time (in memory only)
 
   function noteReplies(toolName, texts) {
     const t = now();
@@ -102,12 +106,14 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
     if (!d) return null;
     const ctx = { agent: d.tool, privacy: PRIVACY[mode] || "redacted", now: now() };
     const built = L.buildWordCorrection(d.ai, d.last, ctx);
-    const send = { ...built.send, surface: d.surface };
+    ended.set(d.key, d.firstAt);
+    for (const [k, at] of ended) if (now() - at > REPLY_TTL) ended.delete(k);
+    const send = { ...built.send, id: "em_" + d.key, surface: d.surface, workflow: "Email draft" };      // the id lets a re-finished email replace its send
     let correction = null;
     if (built.correction) {
       correction = {
         ...built.correction, id: "em_" + d.key, surface: d.surface, workflow: "Email draft", file: "",
-        timeSource: "estimated", ended: reason,     // "closed": the draft box went away (sent or discarded); "idle": not seen for 30 minutes
+        timeSource: "estimated", ended: reason,     // "closed": the draft box went away (sent or discarded); "idle": not seen for 3 minutes
         activeSeconds: Math.round(Math.max(0, d.lastAt - d.firstAt) / 1000),
       };
     }
@@ -146,7 +152,8 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
     const hit = text ? matchReply(text, live) : null;
     if (!hit) return;                                                        // not from an AI reply seen here: nothing is kept
     const ai = aiSpan(hit.text, text);
-    draft = { app: app.id, boxId, surface: app.surface || app.name, tool: hit.tool, ai, last: text, firstAt: t, lastAt: t, key: h(app.id + "|" + ai).slice(0, 14) };
+    const key = h(app.id + "|" + ai).slice(0, 14);
+    draft = { app: app.id, boxId, surface: app.surface || app.name, tool: hit.tool, ai, last: text, firstAt: ended.get(key) || t, lastAt: t, key };
   }
 
   // Called on every look, whatever is in front, so a draft left open and forgotten still ends.
@@ -155,5 +162,8 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
     return null;
   }
 
-  return { noteReplies, see, tick, following: () => !!draft, replyCount: () => replies.length, lastLook: () => ({ ...last, replies: replies.length }) };
+  // What the dashboard may show about a draft being followed right now: no text, only which tool and app, and since when.
+  const status = () => (draft ? { tool: draft.tool, surface: draft.surface, since: draft.firstAt, endsAfterIdle: Math.round(DRAFT_IDLE / 60000) } : null);
+
+  return { noteReplies, see, tick, status, following: () => !!draft, replyCount: () => replies.length, lastLook: () => ({ ...last, replies: replies.length }) };
 }

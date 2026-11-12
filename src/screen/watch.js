@@ -42,7 +42,8 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
     const d = await storage.local.get(["corrections", "sends", "settings"]);
     const patch = {};
     const sends = Array.isArray(d.sends) ? d.sends : [];
-    patch.sends = sends.concat([done.send]);
+    // an email picked up again after it was recorded replaces its earlier send, so one email is one send
+    patch.sends = sends.filter((x) => !(done.send.id && x && x.id === done.send.id)).concat([done.send]);
     if (done.correction) {
       patch.corrections = mergeById(d.corrections, [done.correction]);
       const settings = d.settings || {};
@@ -54,7 +55,23 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
     return done.correction ? 1 : 0;
   }
 
+  // Whether a draft is being followed right now, for the dashboard ("being followed, recorded when it closes"). Written only
+  // when it changes, so the page is not redrawn on every look. No text: tool, app and start time only.
+  let shownStatus = "";
+  async function showStatus() {
+    if (!tracker) return;
+    const s = tracker.status();
+    const key = JSON.stringify(s);
+    if (key === shownStatus) return;
+    shownStatus = key;
+    await storage.local.set({ emailFollowing: s });
+  }
+
   return async function step() {
+    try { return await look(); } finally { try { await showStatus(); } catch (e) { /* the status line is a convenience only */ } }
+  };
+
+  async function look() {
     const cfg = getConfig();
     const sc = cfg.screen || {};
     if (!sc.enabled) return { skipped: "off" };

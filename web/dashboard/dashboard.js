@@ -821,10 +821,11 @@ function render() {
 // ---------------------------------------------------------------------------
 async function load() {
   const seq = ++store.loadSeq;
-  const data = await chrome.storage.local.get(["corrections", "sends", "fixes", "settings", "aiSessions", "rePrompts", "fileRuns", "llmKey", "promptAnalysis", "company", "viewMode"]);
+  const data = await chrome.storage.local.get(["corrections", "sends", "fixes", "settings", "aiSessions", "rePrompts", "fileRuns", "llmKey", "promptAnalysis", "company", "viewMode", "emailFollowing"]);
   if (seq !== store.loadSeq) return;   // a newer load has started; let it win
   const arr = (x) => (Array.isArray(x) ? x : []);
   store.llmKey = typeof data.llmKey === "string" ? data.llmKey : "";
+  store.emailFollowing = data.emailFollowing && typeof data.emailFollowing === "object" ? data.emailFollowing : null;
   store.promptAnalysis = data.promptAnalysis && data.promptAnalysis.items ? data.promptAnalysis : null;
   const localSettings = data.settings || { agents: [] };
   store.company = data.company && data.company.token ? data.company : null;
@@ -1291,6 +1292,16 @@ function step(n, title, nodes, empty) {
 function listJoin(a) { return a.length <= 1 ? (a[0] || "") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1]; }
 function toolsShort(a) { return a.slice(0, 2).join(", ") + (a.length > 2 ? " +" + (a.length - 2) : ""); }
 
+// Edits made to an AI-written email in the mail app (Gmail, Yahoo Mail) before it was sent, recorded by the desktop watcher or the
+// extension, for one workflow. They are corrections like a file's, but have no file, so they get their own section.
+const isMailSurface = (s) => /mail/i.test(String(s || ""));
+function emailEditsOf(name) {
+  return visible(store.corrections).filter((c) => c && c.workflow === name && isMailSurface(c.surface)).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+}
+function emailSendsOf(name) {
+  return visible(store.sends).filter((x) => x && x.workflow === name && isMailSurface(x.surface));
+}
+
 function renderWorkflowList(rows) {
   const box = $("wfItems");
   box.textContent = "";
@@ -1305,7 +1316,9 @@ function renderWorkflowList(rows) {
     b.appendChild(el("span", "", r.team + (r.tools.length ? " \u00b7 " + toolsShort(r.tools) : "")));
     const bits = [r.rePrompts + (r.rePrompts === 1 ? " re-prompt" : " re-prompts")];
     if (r.files) bits.push(r.files + (r.files === 1 ? " file" : " files"));
-    bits.push(fmtMin(r.minutes) + " human time");
+    const mailEdits = emailEditsOf(r.name);
+    if (mailEdits.length) bits.push(mailEdits.length + " " + (mailEdits[0].surface || "email") + (mailEdits.length === 1 ? " edit" : " edits"));
+    bits.push(fmtMin(r.minutes + mailEdits.reduce((m, c) => m + (Number(c.estimatedMinutes) || 0), 0)) + " human time");
     if (!r.live) bits.push("Sample");
     b.appendChild(el("span", "", bits.join(" \u00b7 ")));
     b.addEventListener("click", () => { store.traceWf = r.name; renderTrace(); });
@@ -1413,6 +1426,11 @@ function renderWorkflowSide(t) {
 
 function renderTrace() {
   const idx = A.workflowIndex(currentData());
+  // a workflow that so far has only email edits (no chat or file yet) still gets a row
+  visible(store.corrections).forEach((c) => {
+    if (!c || !c.workflow || !isMailSurface(c.surface) || idx.some((r) => r.name === c.workflow)) return;
+    idx.push({ name: c.workflow, sessions: 0, attempts: 0, rePrompts: 0, files: 0, lastAt: c.timestamp || 0, live: c.source === "seed" ? 0 : 1, sample: c.source === "seed" ? 1 : 0, tools: c.agent ? [c.agent] : [], peopleCount: 0, minutes: 0, team: A.teamOf(c, store.settings) });
+  });
   const rows = idx.filter((r) => store.team === "all" || r.team === store.team);
   const body = $("traceBody");
   body.textContent = "";
@@ -1441,7 +1459,7 @@ function renderTrace() {
   // 1. the chat
   const chat = [];
   if (t.sessions.length || t.rePrompts.length) {
-    chat.push(el("div", "note", t.sessions.length + (t.sessions.length === 1 ? " chat" : " chats") + " in " + (listJoin(t.sites) || "an AI tool") + ", " + t.attempts + " attempts. First prompts are never saved."));
+    chat.push(el("div", "note", t.sessions.length + (t.sessions.length === 1 ? " chat" : " chats") + " in " + (listJoin(t.sites) || "an AI tool") + ", " + t.attempts + (t.attempts === 1 ? " attempt" : " attempts") + ". First prompts are never saved."));
   } else chat.push(el("div", "note", "No AI chat is linked to this workflow. Choose the chat when you upload the file."));
   body.appendChild(step(1, "The AI chat", chat, !(t.sessions.length || t.rePrompts.length)));
 
@@ -1463,6 +1481,38 @@ function renderTrace() {
   }
   body.appendChild(step(2, "Re-prompts (" + t.rePrompts.length + ")", rp, !t.rePrompts.length));
 
+  // 2b. edits to the AI's email, made in the mail app before sending (only for a workflow that has some, or for "Email draft")
+  const mail = emailEditsOf(t.name), mailSends = emailSendsOf(t.name);
+  const following = store.emailFollowing && t.name === "Email draft" ? store.emailFollowing : null;
+  let n = 3;
+  if (mail.length || mailSends.length || following || t.name === "Email draft") {
+    const em = [];
+    if (following) {
+      const c = el("div", "callout");
+      c.appendChild(el("span", "", "A " + (following.surface || "Gmail") + " draft written from a " + (following.tool || "AI") + " reply is being followed now. It is recorded when you send or close it (keep the mail window in front for about 10 seconds afterwards), or " + (following.endsAfterIdle || 3) + " minutes after Farfield last saw it."));
+      em.push(c);
+    }
+    if (!mail.length) {
+      const unchanged = mailSends.filter((x) => !x.category).length;
+      em.push(el("div", "note", unchanged ? unchanged + (unchanged === 1 ? " email was" : " emails were") + " sent as the AI wrote " + (unchanged === 1 ? "it" : "them") + ", with no edits." : following ? "No edits recorded yet." : "No edits to an AI-written email are recorded yet. Paste the AI's email into a Gmail draft, edit it, and send or close it."));
+    }
+    mail.slice(0, 5).forEach((c) => {
+      const hd = el("div", "trow");
+      hd.appendChild(el("span", "tag tag-content", c.surface || "Email"));
+      hd.appendChild(el("span", "tt", (c.wordsAdded || 0) + " words added, " + (c.wordsRemoved || 0) + " removed" + (c.agent ? " in " + c.agent + "\u2019s draft" : "")));
+      if (c.category) hd.appendChild(el("span", "tag " + (c.category === "Factual/Data Correction" ? "tag-factual" : c.category === "Terminology/Context Mismatch" ? "tag-term" : c.category === "Tone/Style Edit" ? "tag-tone" : "tag-content"), c.category));
+      hd.appendChild(el("span", "note", fmtMin(c.estimatedMinutes || 0) + " (estimated)" + (c.timestamp ? ", " + fmtDate(c.timestamp) : "")));
+      em.push(hd);
+      if (c.originalSnippet || c.editedSnippet) {
+        const r2 = el("div", "trow");
+        r2.appendChild(chgNode({ addr: "AI \u2192 sent", before: c.originalSnippet || "", after: c.editedSnippet || "" }));
+        em.push(r2);
+      }
+    });
+    if (mail.length > 5) em.push(el("div", "note", "and " + (mail.length - 5) + " more in the Fixes tab."));
+    body.appendChild(step(n++, "Edits to the email before sending (" + mail.length + ")", em, !mail.length && !following));
+  }
+
   // 3. the output file
   const files = [];
   if (!t.hasFile) {
@@ -1481,7 +1531,8 @@ function renderTrace() {
     frow.appendChild(el("span", f.source === "seed" ? "sample-badge" : "live-badge", f.source === "seed" ? "Sample" : "Live"));
     files.push(frow);
   });
-  body.appendChild(step(3, "The output file", files, !t.hasFile));
+  const emailOnly = !t.hasFile && (mail.length || following);      // the output was an email: the file steps would only say "no file"
+  if (!emailOnly) body.appendChild(step(n++, "The output file", files, !t.hasFile));
 
   // 4. your edits
   const edits = [];
@@ -1495,18 +1546,22 @@ function renderTrace() {
     f.changes.slice(0, 8).forEach((c) => { const r2 = el("div", "trow"); r2.appendChild(chgNode(c)); edits.push(r2); });
     if (f.changedCells > 8) edits.push(el("div", "note", "and " + (f.changedCells - 8) + " more."));
   });
-  body.appendChild(step(4, "Your edits to the file", edits, !t.hasFile));
+  if (!emailOnly) body.appendChild(step(n++, "Your edits to the file", edits, !t.hasFile));
 
   // 5. the final deliverable
   const kp = el("div", "kpis");
   function kpi(value, label, cls) { const dd = el("div", "kpi" + (cls ? " " + cls : "")); dd.appendChild(el("b", "", value)); dd.appendChild(el("span", "", label)); kp.appendChild(dd); }
   kpi(String(t.rePrompts.length), "re-prompts to get a usable output");
   kpi(fmtMin(t.promptMinutes), "time spent re-prompting");
-  kpi(t.hasFile ? t.changedCells + " of " + t.totalCells : "No file", "cells or paragraphs you changed by hand");
-  kpi(t.unchangedPct === null ? "No file" : t.unchangedPct + "%", "left exactly as the AI wrote it");
-  kpi(t.hasFile ? fmtMin(t.editMinutes) : "No file", "time editing the file");
-  kpi(fmtMin(t.totalMinutes), "total human time on this deliverable", "total");
-  body.appendChild(step(5, "Final deliverable", [kp], false));
+  if (!emailOnly) {
+    kpi(t.hasFile ? t.changedCells + " of " + t.totalCells : "No file", "cells or paragraphs you changed by hand");
+    kpi(t.unchangedPct === null ? "No file" : t.unchangedPct + "%", "left exactly as the AI wrote it");
+    kpi(t.hasFile ? fmtMin(t.editMinutes) : "No file", "time editing the file");
+  }
+  const mailMin = mail.reduce((m, c) => m + (Number(c.estimatedMinutes) || 0), 0);
+  if (mail.length) kpi(fmtMin(mailMin), "time editing the email before sending");
+  kpi(fmtMin(t.totalMinutes + mailMin), "total human time on this deliverable", "total");
+  body.appendChild(step(n++, "Final deliverable", [kp], false));
 
   renderWorkflowSide(t);
 }
