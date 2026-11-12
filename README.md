@@ -72,6 +72,24 @@ A new task started inside an existing chat gets its own workflow and is never co
 On the dashboard's Workflows tab, each row says how its chats were grouped (by kind of task, by tool, by name, or unsorted), and an unsorted row can be split and each chat renamed or merged. A change of setting applies to tasks started afterwards.
 Tested against the real backend: two people's chats about the same kind of task arrive as one workflow with two people.
 
+## Reading Gmail drafts (edits to AI-written emails) — prototype, first real-Mac run passed
+Off by default, and separate from chat reading. `node src/cli.js screen email on --agree` turns it on (chat reading must be on too). After changing `ax.swift`, run `screen build` again.
+
+How it works (`src/screen/email.js`, `src/screen/adapters/gmail.js`):
+1. While chat reading is on, each AI reply seen in a chat is held **in memory only** (the last 20, for 3 hours). Never written to disk.
+2. When Gmail is the window in front, the native reader jumps to the box labelled "Message Body" and reads only inside it (`--focus-only`). If there is no draft box, it reads nothing. The inbox, thread, recipients and subject are never read. Gmail's quoted earlier email (`gmail_quote`) and signature (`gmail_signature`) are skipped.
+3. A draft is followed only if it clearly comes from one of those AI replies (at least 6 three-word phrases in common, and at least a quarter of the draft). Anything else is dropped at once. The "AI version" is only the part of the reply the draft was built from (a reply with a preamble and three options is cut to the option used).
+4. When the draft box goes away, or after 3 minutes unseen (so an email sent just before switching to another window is still recorded soon), the last version is compared with the AI version (the Word comparison) and saved as one correction with surface `Gmail` and workflow "Email draft", in the chat reading's storage mode. It appears on the dashboard like the extension's Gmail corrections. A draft seen again after that is followed again and its record updated in place (same id and start time), so one email is never counted twice.
+5. On the dashboard, the workflow's page (Workflows tab, "Email draft") has an "Edits to the email before sending" section with each edit, what the AI wrote against what was sent, and a notice while a draft is being followed and not yet recorded. The workflow list shows "1 Gmail edit". Email edits are also in the Fixes tab.
+
+First real run (a Mac, Chrome, a Google Workspace school account, claude.ai): Claude drafted an email, it was pasted into a Gmail draft, edited and closed, and one Gmail correction was recorded. What that run found and fixed:
+- Workspace accounts' tab titles end in "<Org> Mail", not "Gmail". Any "<address> - ... Mail" title now counts as Gmail (Yahoo, AOL, Outlook and similar excluded). Yahoo Mail is its own entry, not yet tried.
+- Gmail's draft box is exposed with the label "Message Body" (confirmed). With a reply box and a new-email pop-up both open, the one being typed in is read first, and each box is told apart by its page id (`:qk`), so closing one is noticed even when another stays open.
+- Claude can put a drafted email in an email card (Subject field, body text box, "Open in Mail"). Its text box is now part of Claude's reply; before, only the line around it was kept and no draft could link.
+- `screen dump --email` ignored `--delay`; fixed. `screen log` now explains, in numbers only, why a draft was not linked.
+Not verified yet: the `gmail_quote` / `gmail_signature` classes on a real reply; Yahoo Mail; ChatGPT and Gemini replies feeding email matching. Check a draft box with `node src/cli.js screen dump --email --delay 5`.
+Known gaps: it cannot tell a sent email from a discarded one; edits in the last few seconds before sending can be missed (it looks about every 10 seconds); when several draft boxes are open, the one being typed in is read (otherwise the first one); the AI text has to be seen in a chat on this computer first (Gmail's own "Help me write" is not matched); it needs the native Mac reader (refused on Windows and with the slow reader, so it never falls back to reading the whole page).
+
 ## Starting it, and what "continuous" means
 - **Start:** double-click `Start Farfield.command` (it opens Terminal and runs `node src/cli.js app`), or run that command yourself. It uses Terminal's Accessibility permission, which is why it is started from Terminal and not as a hidden background program (a background program would need its own permission, and a signed app, which does not exist yet).
 - **It is continuous while it runs.** Every few seconds it looks at the window in front; a new chat is picked up on its own, so nothing needs restarting for a new chat. Restart it only after installing an update, after a reboot, or after closing its Terminal window. A Mac that is asleep captures nothing.
@@ -103,7 +121,7 @@ Browser tests (need Python Playwright with Chromium): `python3 test-e2e/app_e2e.
 - **A new file in a watched folder is assumed to be AI output.** Any xlsx/docx/pptx that lands there is followed.
 - **Edits made inside an AI feature (Copilot in Excel, for example) are not seen.** Only saved files are compared.
 - **Re-prompts are captured from the screen only if you turn that on, and that part has not run on a real machine** (see above). The browser extension is still the tested way to capture them.
-- **No Outlook or email drafts.**
+- **Email: Gmail (including Workspace) and Yahoo Mail drafts, off by default, one successful real-Mac run with Claude** (see "Reading Gmail drafts" above). No Outlook, Apple Mail or Windows. The Chrome extension also captures Gmail, so the same email can be counted twice if both are on.
 - **No installer, auto-start, code signing or tray icon.** You start it from a terminal. The running indicator and pause button exist on the page, but only while that page is open.
 - **The page must be opened from the terminal link.** It works once. Closing the terminal stops the agent.
 - `data.json` holds the changed cell text as plain JSON on disk, as the extension does in Chrome storage. It is not encrypted.

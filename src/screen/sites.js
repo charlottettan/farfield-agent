@@ -62,6 +62,43 @@ export function showTitle(t) {
 const BROWSERS = /chrome|edge|safari|firefox|brave|arc|opera|chromium/i;
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// Email apps whose draft box Farfield may read, to see how a person changed AI text before sending it. Off unless turned on
+// separately from chat reading (screen email on --agree). Only the draft box is ever read, never the inbox or the thread.
+export const EMAIL_APPS = [
+  { id: "gmail", name: "Gmail", names: ["Gmail"], hosts: ["mail.google.com"], surface: "Gmail" },
+  // Yahoo Mail tab titles look like "Inbox (3) - you@yahoo.com - Yahoo Mail". Its draft box is assumed to carry the same
+  // "Message body" label as Gmail's; NOT yet checked on a real Mac (screen dump --email).
+  { id: "yahoo", name: "Yahoo Mail", names: ["Yahoo Mail", "Yahoo! Mail"], hosts: ["mail.yahoo.com"], surface: "Yahoo Mail" },
+];
+export const EMAIL_APP_IDS = EMAIL_APPS.map((t) => t.id);
+
+// Works out whether a window is an allowed email app. Gmail's tab titles end in "- Gmail" ("Inbox (3) - you@example.com - Gmail",
+// "Compose Mail - you@example.com - Gmail"), so the name has to end the title and the app has to be a browser.
+export function identifyEmail(win, allowed) {
+  const ids = Array.isArray(allowed) ? allowed : [];
+  if (!ids.length) return null;
+  const url = String((win && win.url) || "");
+  if (url) {
+    let host = "";
+    try { host = new URL(url).hostname.toLowerCase(); } catch { host = ""; }
+    const hit = EMAIL_APPS.find((t) => ids.includes(t.id) && t.hosts.includes(host));
+    return hit ? { ...hit, basis: "address" } : null;
+  }
+  const title = stripStatusNotices(stripBrowserSuffix(cleanTitle(win && win.title)));
+  const app = cleanTitle(win && win.app);
+  if (!BROWSERS.test(app)) return null;
+  for (const t of EMAIL_APPS) {
+    if (!ids.includes(t.id)) continue;
+    const alt = t.names.map(esc).join("|");
+    if (new RegExp(`(?:^|[-|–—]\\s*)(${alt})\\s*$`, "i").test(title)) return { ...t, basis: "title" };
+    // Google Workspace accounts end with the organisation's own name instead of "Gmail" (seen on a real Mac:
+    // "<subject> - <you>@<school>.edu - The Wharton School Mail"). Any address works (@seas.upenn.edu, @company.com...): the
+    // account's address in the middle is what marks it as Gmail. Other mail apps with the same shape (Yahoo, AOL) are not Gmail.
+    if (t.id === "gmail" && !/\b(yahoo!?|aol|outlook|proton|icloud|zoho)\s+mail\s*$/i.test(title) && /[-|–—]\s*[^\s@]+@[^\s@]+\.[^\s@]+\s*[-|–—]\s*[^-|–—]{0,60}\bMail\s*$/i.test(title)) return { ...t, basis: "title" };
+  }
+  return null;
+}
+
 // Works out whether a window is an AI chat tool, from its address (best) or its title (a guess).
 // Browser window titles look like "Chat name - Claude", so the tool's name has to start or end the title.
 export function identify(win, allowed) {

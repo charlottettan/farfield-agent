@@ -54,8 +54,11 @@ export function claudeTurns(nodes) {
     const role = roleOf(block, headingText);
     if (!role) continue;
     const labels = new Set(block.filter((n) => (n.role === "AXButton" || n.role === "AXHeading") && norm(n.text)).map((n) => norm(n.text)));
+    // Claude can put a drafted email in its own card inside the reply (seen on a real Mac, Chrome + claude.ai): a "Subject:" field,
+    // the body in a text box (AXTextArea) and an "Open in Mail" button. The text box holds the email itself, so for Claude's replies
+    // its text is kept too. Your own messages never contain one (the draft box for typing is outside the message list).
     const parts = block
-      .filter((n) => n.role === "AXStaticText" && norm(n.text))
+      .filter((n) => (n.role === "AXStaticText" || (role === "assistant" && n.role === "AXTextArea")) && norm(n.text))
       .map((n) => norm(n.text))
       .filter((t) => t !== headingText && !labels.has(t) && !TIME.test(t));
     const text = parts.join("\n");

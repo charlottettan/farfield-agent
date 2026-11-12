@@ -47,6 +47,7 @@ func optString(_ name: String) -> String? {
 }
 let focusLabel = optString("--focus")      // jump to the element with this label (for example "Chat messages")
 let tailCount = opt("--tail", 0)           // and read only the last N of its children (the latest messages)
+let focusOnly = args.contains("--focus-only") // and when that element is not there, read nothing at all (used for email draft boxes)
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write((message + "\n").data(using: .utf8)!)
@@ -152,8 +153,23 @@ func findByLabel(_ root: AXUIElement, _ label: String) -> AXUIElement? {
 }
 var focusResult = "none"
 var tailing = false
+// A page can hold several elements with the same label (Gmail: a reply box in the thread AND a new-email pop-up, both
+// "Message Body", seen on a real Mac). The one the person is typing in (it, or one of its parents, has the keyboard focus)
+// is the right one, so it is tried first; otherwise the first one found is used.
+func focusedWithLabel(_ label: String) -> AXUIElement? {
+    guard let ref = attr(app, "AXFocusedUIElement") else { return nil }
+    var el = ref as! AXUIElement
+    let want = label.lowercased()
+    for _ in 0..<12 {
+        if str(attr(el, "AXDescription")).lowercased() == want || str(attr(el, "AXTitle")).lowercased() == want { return el }
+        guard let parent = attr(el, "AXParent") else { return nil }
+        el = parent as! AXUIElement
+    }
+    return nil
+}
 if let label = focusLabel {
-    if let found = findByLabel(start, label) { start = found; focusResult = "found"; tailing = tailCount > 0 } else { focusResult = "missing" }
+    if let typing = focusedWithLabel(label) { start = typing; focusResult = "found"; tailing = tailCount > 0 }
+    else if let found = findByLabel(start, label) { start = found; focusResult = "found"; tailing = tailCount > 0 } else { focusResult = "missing" }
 }
 var skippedChildren = 0
 
@@ -163,6 +179,7 @@ var errors: [String] = []
 var visited = 0
 let deadline = Date().addingTimeInterval(Double(seconds))
 var stack: [(AXUIElement, Int)] = [(start, 0)]
+if focusOnly && focusResult != "found" { stack = [] }
 
 while let (el, d) = stack.popLast() {
     if visited >= maxNodes || Date() > deadline { break }
