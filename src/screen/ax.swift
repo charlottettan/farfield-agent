@@ -47,6 +47,7 @@ func optString(_ name: String) -> String? {
 }
 let focusLabel = optString("--focus")      // jump to the element with this label (for example "Chat messages")
 let tailCount = opt("--tail", 0)           // and read only the last N of its children (the latest messages)
+let focusOnly = args.contains("--focus-only") // and when that element is not there, read nothing at all (used for email draft boxes)
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write((message + "\n").data(using: .utf8)!)
@@ -163,6 +164,7 @@ var errors: [String] = []
 var visited = 0
 let deadline = Date().addingTimeInterval(Double(seconds))
 var stack: [(AXUIElement, Int)] = [(start, 0)]
+if focusOnly && focusResult != "found" { stack = [] }
 
 while let (el, d) = stack.popLast() {
     if visited >= maxNodes || Date() > deadline { break }

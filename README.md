@@ -72,6 +72,18 @@ A new task started inside an existing chat gets its own workflow and is never co
 On the dashboard's Workflows tab, each row says how its chats were grouped (by kind of task, by tool, by name, or unsorted), and an unsorted row can be split and each chat renamed or merged. A change of setting applies to tasks started afterwards.
 Tested against the real backend: two people's chats about the same kind of task arrive as one workflow with two people.
 
+## Reading Gmail drafts (edits to AI-written emails) — prototype, not yet run on a real Mac
+Off by default, and separate from chat reading. `node src/cli.js screen email on --agree` turns it on (chat reading must be on too). After changing `ax.swift`, run `screen build` again.
+
+How it works (`src/screen/email.js`, `src/screen/adapters/gmail.js`):
+1. While chat reading is on, each AI reply seen in a chat is held **in memory only** (the last 20, for 3 hours). Never written to disk.
+2. When Gmail is the window in front, the native reader jumps to the box labelled "Message Body" and reads only inside it (`--focus-only`). If there is no draft box, it reads nothing. The inbox, thread, recipients and subject are never read. Gmail's quoted earlier email (`gmail_quote`) and signature (`gmail_signature`) are skipped.
+3. A draft is followed only if it clearly comes from one of those AI replies (at least 6 three-word phrases in common, and at least a quarter of the draft). Anything else is dropped at once. The "AI version" is only the part of the reply the draft was built from (a reply with a preamble and three options is cut to the option used).
+4. When the draft box goes away, or after 30 minutes unseen, the last version is compared with the AI version (the Word comparison) and saved as one correction with surface `Gmail` and workflow "Email draft", in the chat reading's storage mode. It appears on the dashboard like the extension's Gmail corrections.
+
+Not verified: that Gmail's draft box is exposed to the Mac reader with the label "Message Body", and that the `gmail_quote` / `gmail_signature` classes come through. Check with a test draft: `node src/cli.js screen dump --email --delay 5`.
+Known gaps: it cannot tell a sent email from a discarded one; edits in the last few seconds before sending can be missed (it looks about every 10 seconds); only the first draft box on the page is read; the AI text has to be seen in a chat on this computer first (Gmail's own "Help me write" is not matched); it needs the native Mac reader (refused on Windows and with the slow reader, so it never falls back to reading the whole page).
+
 ## Starting it, and what "continuous" means
 - **Start:** double-click `Start Farfield.command` (it opens Terminal and runs `node src/cli.js app`), or run that command yourself. It uses Terminal's Accessibility permission, which is why it is started from Terminal and not as a hidden background program (a background program would need its own permission, and a signed app, which does not exist yet).
 - **It is continuous while it runs.** Every few seconds it looks at the window in front; a new chat is picked up on its own, so nothing needs restarting for a new chat. Restart it only after installing an update, after a reboot, or after closing its Terminal window. A Mac that is asleep captures nothing.
@@ -103,7 +115,7 @@ Browser tests (need Python Playwright with Chromium): `python3 test-e2e/app_e2e.
 - **A new file in a watched folder is assumed to be AI output.** Any xlsx/docx/pptx that lands there is followed.
 - **Edits made inside an AI feature (Copilot in Excel, for example) are not seen.** Only saved files are compared.
 - **Re-prompts are captured from the screen only if you turn that on, and that part has not run on a real machine** (see above). The browser extension is still the tested way to capture them.
-- **No Outlook or email drafts.**
+- **Email: Gmail drafts only, off by default, and not yet run on a real machine** (see "Reading Gmail drafts" above). No Outlook, Apple Mail or Windows.
 - **No installer, auto-start, code signing or tray icon.** You start it from a terminal. The running indicator and pause button exist on the page, but only while that page is open.
 - **The page must be opened from the terminal link.** It works once. Closing the terminal stops the agent.
 - `data.json` holds the changed cell text as plain JSON on disk, as the extension does in Chrome storage. It is not encrypted.

@@ -62,6 +62,35 @@ export function showTitle(t) {
 const BROWSERS = /chrome|edge|safari|firefox|brave|arc|opera|chromium/i;
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// Email apps whose draft box Farfield may read, to see how a person changed AI text before sending it. Off unless turned on
+// separately from chat reading (screen email on --agree). Only the draft box is ever read, never the inbox or the thread.
+export const EMAIL_APPS = [
+  { id: "gmail", name: "Gmail", names: ["Gmail"], hosts: ["mail.google.com"], surface: "Gmail" },
+];
+
+// Works out whether a window is an allowed email app. Gmail's tab titles end in "- Gmail" ("Inbox (3) - you@example.com - Gmail",
+// "Compose Mail - you@example.com - Gmail"), so the name has to end the title and the app has to be a browser.
+export function identifyEmail(win, allowed) {
+  const ids = Array.isArray(allowed) ? allowed : [];
+  if (!ids.length) return null;
+  const url = String((win && win.url) || "");
+  if (url) {
+    let host = "";
+    try { host = new URL(url).hostname.toLowerCase(); } catch { host = ""; }
+    const hit = EMAIL_APPS.find((t) => ids.includes(t.id) && t.hosts.includes(host));
+    return hit ? { ...hit, basis: "address" } : null;
+  }
+  const title = stripStatusNotices(stripBrowserSuffix(cleanTitle(win && win.title)));
+  const app = cleanTitle(win && win.app);
+  if (!BROWSERS.test(app)) return null;
+  for (const t of EMAIL_APPS) {
+    if (!ids.includes(t.id)) continue;
+    const alt = t.names.map(esc).join("|");
+    if (new RegExp(`(?:^|[-|–—]\\s*)(${alt})\\s*$`, "i").test(title)) return { ...t, basis: "title" };
+  }
+  return null;
+}
+
 // Works out whether a window is an AI chat tool, from its address (best) or its title (a guess).
 // Browser window titles look like "Chat name - Claude", so the tool's name has to start or end the title.
 export function identify(win, allowed) {
