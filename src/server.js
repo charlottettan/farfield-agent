@@ -32,6 +32,7 @@ const safeEqual = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(
 export function createAppServer({ agent, home, token, getLoop = () => ({ running: false }), onChange = () => {} }) {
   const files = new Map();
   for (const [k, v] of listFiles(path.join(WEB, "dashboard"))) files.set(k, v);          // /dashboard.html, /fonts/...
+  for (const [k, v] of listFiles(path.join(WEB, "look-fonts"))) files.set("/look-fonts" + k, v);   // the desktop look's fonts
   for (const n of ["panel.html", "panel.js", "shim.js", "farfield-look.css", "farfield-look.js"]) files.set("/" + n, path.join(WEB, n));
 
   let entryToken = token;                       // one-time: cleared as soon as it is used

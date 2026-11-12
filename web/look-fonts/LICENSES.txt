@@ -1,0 +1,7 @@
+Fonts for the desktop app's look (web/farfield-look.css), matching withfarfield.com.
+Kept here, outside web/dashboard, so refreshing the dashboard from the extension does not delete them.
+Each is licensed under the SIL Open Font License 1.1 (https://openfontlicense.org), which allows bundling and redistribution.
+Downloaded from the Fontsource copies of the Google Fonts (cdn.jsdelivr.net/npm/@fontsource), Latin subset.
+
+  Inter        (c) The Inter Project Authors (Rasmus Andersson). Regular, Medium, SemiBold. Interface text and figures.
+  Newsreader   (c) The Newsreader Project Authors (Production Type). Regular and Italic. Page titles and headlines.
