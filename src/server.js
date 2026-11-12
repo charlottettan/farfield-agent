@@ -32,7 +32,7 @@ const safeEqual = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(
 export function createAppServer({ agent, home, token, getLoop = () => ({ running: false }), onChange = () => {} }) {
   const files = new Map();
   for (const [k, v] of listFiles(path.join(WEB, "dashboard"))) files.set(k, v);          // /dashboard.html, /fonts/...
-  for (const n of ["panel.html", "panel.js", "shim.js", "farfield-look.css"]) files.set("/" + n, path.join(WEB, n));
+  for (const n of ["panel.html", "panel.js", "shim.js", "farfield-look.css", "farfield-look.js"]) files.set("/" + n, path.join(WEB, n));
 
   let entryToken = token;                       // one-time: cleared as soon as it is used
   const sessions = new Set();
@@ -172,7 +172,8 @@ export function createAppServer({ agent, home, token, getLoop = () => ({ running
           .replace(/\s*<canvas id="rippleBg"[^>]*><\/canvas>/i, "")
           .replace(/\s*<script src="overview-ripple\.js"><\/script>/i, "")
           // the desktop app's own look (withfarfield.com), layered after the dashboard's styles
-          .replace(/<\/head>/i, '<link rel="stylesheet" href="/farfield-look.css">\n</head>'));
+          .replace(/<\/head>/i, '<link rel="stylesheet" href="/farfield-look.css">\n</head>')
+          .replace(/<\/body>/i, '<script src="/farfield-look.js"></script>\n</body>'));
       }
       return send(res, 200, data, MIME[path.extname(file).toLowerCase()] || "application/octet-stream");
     } catch (e) {

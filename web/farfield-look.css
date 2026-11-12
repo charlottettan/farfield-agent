@@ -30,7 +30,7 @@
   --logo-ink: #0B0E14; --logo-blue: #4A63C9;
   --s1: #4A63C9; --s2: #0B0E14; --s3: #C98A3D; --s4: #2F8F7F; --s5: #8A909C; --s6: #B3261E;
   --seg-on: #0B0E14; --seg-on-text: #FFFFFF;
-  --radius: 10px;
+  --radius: 6px;
 }
 :root[data-theme="dark"] {
   --page: #06080C; --bg: #0E121A; --soft: #141924; --soft2: #1B2130; --line: #232A38; --line2: #333C4E;
@@ -50,64 +50,134 @@ body { background: var(--page); color: var(--text); font-family: var(--sans); -w
 
 /* ---------- top bar: near-black, like the site's header ---------- */
 .topbar { background: var(--ink); border-bottom: 0; --logo-ink: #FFFFFF; --logo-blue: #9DB6FF; color: #FFFFFF; }
-.tabs button { color: rgba(255, 255, 255, 0.62); font-weight: 400; }
+.topbar-in { height: 56px; }
+.tabs { gap: 26px; }
+.tabs button { color: rgba(255, 255, 255, 0.6); font-weight: 400; font-size: 14px; letter-spacing: 0.005em; }
 .tabs button:hover { color: #FFFFFF; }
 .tabs button[aria-selected="true"] { color: #FFFFFF; font-weight: 500; }
 .tabs button[aria-selected="true"]::after { background: #9DB6FF; height: 2px; }
-.top-controls, .top-controls label, .viewlabel { color: rgba(255, 255, 255, 0.62); }
-.topbar select, .topbar input { background: transparent; color: #FFFFFF; border-color: rgba(255, 255, 255, 0.22); }
+.top-controls, .top-controls label, .viewlabel { color: rgba(255, 255, 255, 0.6); font-size: 13px; }
+.topbar select, .topbar input { background: transparent; color: #FFFFFF; border-color: rgba(255, 255, 255, 0.2); }
 .topbar select option { color: #0B0E14; background: #FFFFFF; }
-.topbar .seg { background: transparent; border-color: rgba(255, 255, 255, 0.22); }
-.topbar .seg button { color: rgba(255, 255, 255, 0.7); border-right-color: rgba(255, 255, 255, 0.22); }
+.topbar .seg { background: transparent; border-color: rgba(255, 255, 255, 0.2); }
+.topbar .seg button { color: rgba(255, 255, 255, 0.7); border-right-color: rgba(255, 255, 255, 0.2); }
 .topbar .seg button:hover { background: rgba(255, 255, 255, 0.08); color: #FFFFFF; }
 .topbar .seg button[aria-pressed="true"] { background: #FFFFFF; color: var(--ink); font-weight: 500; }
-.topbar .icon-btn { background: transparent; color: rgba(255, 255, 255, 0.75); border-color: rgba(255, 255, 255, 0.22); }
+.topbar .icon-btn { background: transparent; color: rgba(255, 255, 255, 0.7); border-color: rgba(255, 255, 255, 0.2); }
 .topbar .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: #FFFFFF; }
 .topbar .icon-btn[aria-pressed="true"] { background: #FFFFFF; color: var(--ink); border-color: #FFFFFF; }
+/* the running / paused status sits in the top bar (shim.js puts it there), not floating over the page */
+.ff-status { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: rgba(255, 255, 255, 0.7); white-space: nowrap; }
+.ff-status .ff-dot { width: 7px; height: 7px; border-radius: 50%; background: #8A909C; }
+.ff-status button { font: inherit; background: none; border: 0; padding: 0; color: rgba(255, 255, 255, 0.85); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255, 255, 255, 0.3); cursor: pointer; }
+.ff-status button:hover { color: #FFFFFF; }
+.ff-status a { color: rgba(255, 255, 255, 0.85); text-decoration: none; }
+.ff-status a:hover { color: #FFFFFF; }
+.ff-status .ff-sep { width: 1px; height: 16px; background: rgba(255, 255, 255, 0.18); }
+/* the theme switch lives in Data and settings (farfield-look.js moves it), not in the main navigation */
+.ff-appearance { display: flex; align-items: center; gap: 14px; padding: 0 0 20px; margin: 0 0 24px; border-bottom: 1px solid var(--line); font-size: 13.5px; color: var(--muted); }
+
+/* ---------- spacing: one 8px grid ---------- */
+.wrap { padding: 32px 32px 96px; }
+.section { margin: 0 0 48px; }
+.tabpanel > .section + .section, .tabpanel > section + section { border-top: 1px solid var(--line); padding-top: 32px; }
+.page-head { margin: 0 0 24px; align-items: center; }
+.sec-head { margin: 0 0 16px; }
+.chart-bar { margin: 40px 0 12px; }
 
 /* ---------- type ---------- */
+body { font-size: 14px; font-feature-settings: "tnum" 1, "lnum" 1, "cv11" 1; }
 h1, h2, h3, h4 { font-weight: 500; }
-.page-title { font-family: var(--serif); font-size: 36px; font-weight: 400; line-height: 1.15; letter-spacing: -0.02em; color: var(--text); }
-.section h2, .sec-head h3, .section h3, .wf-head h3, .chart-bar h3 { font-family: var(--serif); font-weight: 400; letter-spacing: -0.01em; }
-.section h2 { font-size: 24px; }
-.sec-head h3, .section h3, .chart-bar h3 { font-size: 21px; }
-.headline { font-family: var(--serif); font-weight: 400; font-size: 23px; line-height: 1.45; color: var(--text); }
-.team .tn { font-family: var(--serif); font-weight: 400; font-size: 19px; }
-b, strong, .rowbtn b, .wf-name, .headline-s, .queue-item .headline { font-weight: 600; }
+.page-title { font-family: var(--serif); font-size: 34px; font-weight: 400; line-height: 1.1; letter-spacing: -0.02em; color: var(--text); }
+.section h2, .sec-head h3, .section h3, .wf-head h3, .chart-bar h3 { font-family: var(--serif); font-weight: 400; letter-spacing: -0.01em; color: var(--text); }
+.section h2 { font-size: 22px; }
+.sec-head h3, .section h3, .chart-bar h3 { font-size: 19px; }
+.team .tn { font-family: var(--sans); font-weight: 500; font-size: 14px; }
+b, strong, .rowbtn b, .wf-name, .headline-s, .queue-item .headline { font-weight: 500; }
+.fine, .note, .section-sub, .sub { color: var(--muted); }
 
-/* ---------- figures: clean sans numbers on a white card ---------- */
-.figures, .stats { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 24px; }
-.figures > div, .stats > .card { padding: 20px 24px 20px 0; }
-.stat-value, .figures .val, .pstep .big, .kpi b, .ba-num { font-weight: 500; letter-spacing: -0.02em; }
-.stat-label, .figures .lab { color: var(--muted); }
+/* the headline: one confident line with its key figure; the rest underneath, quietly (farfield-look.js splits it) */
+.headline { font-family: var(--serif); font-weight: 400; font-size: 20px; line-height: 1.4; max-width: 72ch; margin: 0 0 6px; color: var(--text); }
+.headline em { font-style: italic; color: var(--accent-text); }
+.ff-headline-more { font-size: 13.5px; color: var(--muted); margin: 0 0 24px; max-width: 90ch; }
+
+/* ---------- the four figures: the one card on the page ---------- */
+.figures, .stats { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 24px; margin: 0 0 8px; }
+.figures > div, .stats > .card { padding: 18px 24px 18px 0; }
+.stat-label, .figures .lab { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 500; margin: 0 0 8px; }
+.stat-value, .figures .val { font-size: 30px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; }
+.figures .val .ff-unit { font-size: 15px; font-weight: 400; color: var(--muted); margin-left: 3px; letter-spacing: 0; }
+.figures .val .ff-unit.ff-pct { margin-left: 1px; }
+.figures .val.ff-word { font-size: 22px; padding-top: 6px; }
+.stat-sub, .figures .sub { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.pstep .big, .kpi b, .ba-num { font-weight: 500; letter-spacing: -0.02em; }
 .pipeline { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 24px; }
-.pstep .pn { color: var(--accent-text); font-weight: 500; }
+.pstep .pn { color: var(--accent-text); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; }
 
-/* charts and lists sit on white cards */
-.chartbox { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px 10px; }
-#teamCards, #rolloutTable { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 20px; }
-#teamCards .team:first-of-type { border-top: 0; } #teamCards .team:last-of-type { border-bottom: 0; }
+/* ---------- tables: small caps headers, right-aligned numbers, tighter rows ---------- */
+.table { font-size: 13.5px; }
+.table th, .team-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 500; }
+.table th { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--line2); }
+.table td { padding: 10px 12px 10px 0; }
+.table .sm { font-size: 12px; }
+.team > summary { padding: 11px 0; }
+.team .tk { text-align: right; padding-right: 8px; }
+.team .tk b { font-size: 15px; font-weight: 500; }
+.team-head { padding: 0 0 10px; border-bottom: 1px solid var(--line2); }
+.team-head > :nth-child(n+3):nth-child(-n+6) { text-align: right; padding-right: 8px; }
+.team { border-top: 0; border-bottom: 1px solid var(--line); }
+.team:last-of-type { border-bottom: 1px solid var(--line); }
+/* up / down: quiet colour, small arrow (farfield-look.js swaps the sign for the arrow) */
+.down, .up { font-weight: 500; }
+:root, :root[data-theme="light"] { --good: #2A7A55; --bad: #A8443A; }
+.ff-arrow { font-size: 0.72em; margin-right: 3px; position: relative; top: -0.08em; }
+
+/* ---------- fewer boxes: hairlines and space, not cards ---------- */
+.chartbox { background: transparent; border: 0; padding: 0; }
+#teamCards, #rolloutTable { background: transparent; border: 0; padding: 0; }
 .wf-layout { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); }
-.wf-list { padding-left: 14px; }
-.wf-side { padding-right: 20px; }
+.wf-list { padding-left: 12px; } .wf-side { padding-right: 16px; }
+.banner, .capture-note, .plan, .proposal, .rule, .side, .ex div, pre.snippet, .fixcard .fr, .tag, .live-badge, .sample-badge, .import-badge { background: var(--soft); border-radius: 4px; }
+.card { border-top-color: var(--line); }
 
-/* quiet tinted boxes */
-.banner, .capture-note, .plan, .proposal, .rule, .side, .ex div, pre.snippet, .fixcard .fr, .tag, .live-badge, .sample-badge, .import-badge { background: var(--soft); }
-.banner { border-color: var(--line); border-radius: var(--radius); background: var(--bg); }
+/* the sample-data and company notices: one slim line, not a card */
+.banner { background: transparent; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 0 0 12px; margin: 0 0 28px; font-size: 12.5px; gap: 6px 16px; }
+.banner b { font-weight: 500; }
+.banner .btn.secondary { background: none; border: 0; padding: 0; color: var(--accent-text); font-size: 12.5px; }
+.banner .btn.secondary:hover { background: none; text-decoration: underline; }
+:root[data-theme="dark"] .banner .btn.secondary { background: none; border: 0; color: var(--accent-text); }
+.banner .link-btn { font-size: 12.5px; color: var(--muted); }
 
-/* ---------- buttons and controls ---------- */
-.btn { background: var(--ink); border-color: var(--ink); color: #FFFFFF; font-weight: 500; border-radius: 8px; }
+/* ---------- chart: hairlines, one accent line, quiet markers ---------- */
+.chartbox .gl { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
+.chartbox .ax { fill: var(--faint); font-size: 11px; }
+.chartbox .ev { stroke: var(--line2); stroke-width: 1; stroke-dasharray: 1 3; opacity: 0.5; }
+.chartbox .evd { fill: var(--page); stroke: var(--line2); stroke-width: 1; }
+.chartbox .evd:hover { fill: var(--accent); stroke: var(--accent); }
+.chartbox .evl { fill: var(--faint); font-size: 10.5px; }
+.chartbox path[style*="stroke"] { stroke-width: 1.75px !important; }
+.chartbox circle { r: 2.5px; }
+.legend { font-size: 12px; gap: 6px 20px; }
+.legend i { height: 2px; width: 14px; }
+:root, :root[data-theme="light"] { --s1: #4A63C9; --s2: #0B0E14; --s3: #9AA1AE; --s4: #C3C8D2; --s5: #6D7586; --s6: #A8443A; }
+:root[data-theme="dark"] { --s1: #9DB6FF; --s2: #EEF1F7; --s3: #6D7586; --s4: #454D5E; --s5: #A3AABA; --s6: #F28B82; }
+
+/* ---------- buttons and controls: square, quiet ---------- */
+.btn { background: var(--ink); border-color: var(--ink); color: #FFFFFF; font-weight: 500; border-radius: 6px; font-size: 13.5px; padding: 7px 14px; }
 .btn:hover { background: #222833; border-color: #222833; filter: none; }
 :root[data-theme="dark"] .btn { background: #FFFFFF; border-color: #FFFFFF; color: var(--ink); }
 :root[data-theme="dark"] .btn:hover { background: #DDE2EC; border-color: #DDE2EC; }
-.btn.secondary, .ghost-btn { background: transparent; color: var(--text); border: 1px solid var(--line2); font-weight: 400; border-radius: 8px; }
+.btn.secondary, .ghost-btn { background: transparent; color: var(--text); border: 1px solid var(--line2); font-weight: 400; border-radius: 6px; }
 .btn.secondary:hover, .ghost-btn:hover { background: var(--soft); }
-.seg, select, input[type="text"], input[type="search"], input[type="date"], input[type="password"], textarea, .icon-btn { border-radius: 8px; }
+.seg, select, input[type="text"], input[type="search"], input[type="date"], input[type="password"], textarea, .icon-btn { border-radius: 6px; }
+.seg button { font-size: 13px; padding: 5px 12px; }
 .seg button[aria-pressed="true"] { font-weight: 500; }
+.subtabs button { font-size: 14px; }
 .subtabs button[aria-selected="true"] { font-weight: 500; }
 .subtabs button[aria-selected="true"]::after { background: var(--accent); }
 .wf-item[aria-selected="true"] { background: var(--accent-soft); }
 .rank { font-weight: 500; }
+.rbar { height: 3px; } .split { height: 4px; }
 
 /* ---------- panel page ---------- */
 body.ff-panel { margin: 0; font-size: 15px; line-height: 1.55; }
