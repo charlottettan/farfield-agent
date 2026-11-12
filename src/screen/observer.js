@@ -111,8 +111,7 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
   function feed(snapshot, tool, meta = {}) {
     const t = now();
     const { turns } = extractTurns(snapshot, tool);
-    // replies: the AI's replies on screen this look, handed to the email matcher (kept in memory there, never saved by the observer)
-    const out = { rePrompts: [], sessions: [], labels: [], replies: turns.filter((x) => x.role === "assistant").map((x) => x.text), seen: turns.length, changed: false };
+    const out = { rePrompts: [], sessions: [], labels: [], seen: turns.length, changed: false };
     if (!turns.length) return out;
     const keys = keysOf(turns);
     const titleHash = meta && meta.title ? h("title|" + tool.id + "|" + norm(meta.title)).slice(0, 16) : "";

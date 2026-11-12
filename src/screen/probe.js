@@ -279,7 +279,6 @@ export function createProbe(platform = process.platform, runner = run, sleep = s
       if (o.enableAccessibility === true) args.push("--enable");
       if (o.scope === "window") args.push("--scope", "window");
       if (o.focus) args.push("--focus", String(o.focus), "--tail", String(o.tail || 1500));
-      if (o.focus && o.focusOnly) args.push("--focus-only");      // no labelled element: read nothing, instead of the whole page
       return runner(bin, args, o.timeoutMs || 60000);
     };
     const slowRead = async (o) => {
@@ -298,8 +297,6 @@ export function createProbe(platform = process.platform, runner = run, sleep = s
       async tree(o = {}) {
         const engine = o.engine || "auto";
         // The fast reader failed on the first real Mac it ran on ("Ref has incompatible type"), so it is opt-in only.
-        // A read limited to one labelled element (an email draft box) is only possible with the native reader. The others would read the whole page.
-        if (o.focusOnly && engine !== "native") throw new Error("Reading only one labelled element needs the native reader (engine native).");
         if (engine === "fast") return fast(o);
         if (engine === "slow") return slowRead(o);
         if (engine === "native") return native(o);
@@ -317,7 +314,7 @@ export function createProbe(platform = process.platform, runner = run, sleep = s
     return {
       title: () => runner("powershell.exe", ps(WIN_TITLE), 10000),
       check: () => Promise.resolve({ ok: true }),
-      tree: (o = {}) => (o.focusOnly ? Promise.reject(new Error("Reading only one labelled element is not available on Windows yet.")) : runner("powershell.exe", ps(winTree(o.maxNodes || DEFAULT_NODES)), o.timeoutMs || 40000)),
+      tree: (o = {}) => runner("powershell.exe", ps(winTree(o.maxNodes || DEFAULT_NODES)), o.timeoutMs || 40000),
     };
   }
   const no = () => Promise.reject(new Error("Reading chat windows is only set up for macOS and Windows."));

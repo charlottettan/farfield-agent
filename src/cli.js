@@ -7,8 +7,7 @@ import { createAgent } from "./agent.js";
 import fs from "node:fs";
 import { startApp } from "./app.js";
 import { createProbe, ensureNative } from "./screen/probe.js";
-import { identify, identifyEmail, showTitle } from "./screen/sites.js";
-import { gmailDraft } from "./screen/adapters/gmail.js";
+import { identify, showTitle } from "./screen/sites.js";
 import { extractTurns } from "./screen/turns.js";
 import { hintsFor } from "./screen/adapters/index.js";
 import { shapeDump, maskNodes } from "./screen/shape.js";
@@ -27,9 +26,6 @@ const USAGE = `Farfield desktop agent
   farfield-agent leave [--delete-data]  Leave the company (optionally delete what was sent)
   farfield-agent screen on --agree      Also read AI chat windows (ChatGPT, Claude, Gemini, Copilot) to catch re-prompts
   farfield-agent screen off
-  farfield-agent screen email on --agree   Also read the Gmail draft box, to see how AI text was changed before sending (needs screen on)
-  farfield-agent screen email off
-  farfield-agent screen dump --email [--delay 5] [--keep-text]   Read only an open Gmail draft box, to check email reading works (use a test draft)
   farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine native|slow] [--scope window] [--enable-accessibility] [--keep-text]   Save the structure of one chat window (text only with --keep-text; test chat only)
   farfield-agent screen naming <task|tool|first-prompt>   How workflows are named (default: by the kind of task)
   farfield-agent screen build           Compile the native Mac reader once (needed before screen on works at full speed)
@@ -96,46 +92,11 @@ export async function main(argv, env = process.env, deps = {}) {
       cfg.screen = { ...(cfg.screen || {}), enabled: true }; saveConfig(home, cfg); say("Chat reading is on."); return 0;
     }
     if (sub === "off") { cfg.screen = { ...(cfg.screen || {}), enabled: false }; saveConfig(home, cfg); say("Chat reading is off."); return 0; }
-    if (sub === "email") {
-      const what = pos[2];
-      if (what === "off") { cfg.screen = { ...(cfg.screen || {}), email: false }; saveConfig(home, cfg); say("Email reading is off."); return 0; }
-      if (what !== "on") { say("Use: screen email on --agree | screen email off"); return 1; }
-      say("While Gmail is the window in front, Farfield will read the text of the email draft box only (the box labelled \"Message Body\").");
-      say("It never reads your inbox, the email thread, the recipients or the subject. If no draft box is open, nothing is read.");
-      say("A draft is kept only if it clearly comes from an AI reply Farfield saw in an AI chat in the last 3 hours. Any other draft is dropped at once.");
-      say("Those AI replies are held in memory only, never saved. What is saved: one correction per AI-written email (what changed), in the mode below. Mode: " + ((cfg.screen && cfg.screen.storeMode) || "redacted") + ".");
-      say("It cannot tell a sent email from a discarded one, and it can miss edits made in the last few seconds before sending.");
-      if (!(cfg.screen && cfg.screen.enabled)) say("Chat reading is off. Email reading only works when chat reading is on too (screen on --agree).");
-      if (process.platform !== "darwin") say("Email reading needs the native Mac reader. It is not available on this computer yet.");
-      else say("If you have run `screen build` before, run it again: the reader changed.");
-      if (!flags.agree) { say("\nRun the same command with --agree to turn it on."); return 0; }
-      cfg.screen = { ...(cfg.screen || {}), email: true, emailApps: ["gmail"] }; saveConfig(home, cfg); say("Email reading is on (Gmail)."); return 0;
-    }
     if (sub === "dump") {
       const delay = Number(flags.delay || 0);
       if (delay > 0) { say(`Switch to the chat window now. Reading it in ${delay} seconds...`); await new Promise((r) => setTimeout(r, delay * 1000)); }
       const probe = deps.probe || createProbe(process.platform, undefined, undefined, { binDir: path.join(home, "bin") });
       const win = await probe.title();
-      if (flags.email) {
-        // Reads only the Gmail draft box, exactly as email reading does, to check that the draft's text is found and quotes are left out.
-        const app = identifyEmail(win, ["gmail"]);
-        say(`Front window: app "${win.app}", title "${win.title}". Recognised as: ${app ? app.name + " (by " + app.basis + ")" : "not Gmail"}.`);
-        if (!app) { say("Not reading it. Open a test draft in Gmail (use --delay 5 to get time) and try again."); return 1; }
-        let tree;
-        try { tree = await probe.tree({ engine: "native", build: false, maxNodes: 1500, timeoutMs: 20000, focus: "Message Body", focusOnly: true, tail: 400 }); }
-        catch (e) { say("Could not read the draft box: " + e.message); return 1; }
-        if (tree.focus !== "found") { say("No draft box labelled \"Message Body\" was found, so nothing was read. Is a draft open (click Compose or Reply)?"); return 1; }
-        const nodes = Array.isArray(tree.nodes) ? tree.nodes : [];
-        const d = gmailDraft(nodes);
-        const dir = path.join(home, "dumps"); fs.mkdirSync(dir, { recursive: true });
-        const file = path.join(dir, "email-dump-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json");
-        const keep = flags["keep-text"] === true;
-        fs.writeFileSync(file, JSON.stringify({ capturedAt: new Date().toISOString(), platform: process.platform, engine: tree.engine, visited: tree.visited, errors: tree.errors, masked: !keep, kind: "gmail-draft", nodes: keep ? nodes : maskNodes(nodes) }, null, 2), { mode: 0o600 });
-        say(`Read ${nodes.length} pieces from the draft box. The draft has ${d && d.body ? d.body.split("\n").length : 0} line(s) of its own (quoted earlier mail and signature left out).`);
-        if (keep && d) say("Draft as Farfield sees it:\n" + d.body.slice(0, 600));
-        say(keep ? "Saved to " + file + " WITH the draft's text. Use a test draft, and delete it when done (screen forget)." : "Saved to " + file + ". Only the structure was saved, safe to share after you look through it.");
-        return 0;
-      }
       const tool = identify(win, cfg.screen && cfg.screen.tools);
       say(`Front window: app "${win.app}", title "${win.title}". Recognised as: ${tool ? tool.name + " (by " + tool.basis + ")" : "not an allowed AI chat"}.`);
       if (!tool) say(`Title as Farfield sees it (hidden characters spelled out): "${showTitle(win.title)}"`);
@@ -206,7 +167,6 @@ export async function main(argv, env = process.env, deps = {}) {
         if (e.skipped === "not_allowed") what = `the window in front was ${e.app || "an unknown app"}${e.titleShape ? ` (title pattern: ${e.titleShape})` : ""}, which does not look like an AI chat, so nothing was read`;
         else if (e.skipped === "probe_error") what = "could not read the window: " + (e.error || "unknown problem");
         else if (e.skipped) what = "skipped: " + e.skipped;
-        else if (e.email) what = `${e.tool}: ${e.draft ? "a draft box was open" : "no draft box open"}${e.following ? ", following a draft that came from an AI reply" : ""}${e.emailRecorded ? `, ${e.emailRecorded} email correction(s) recorded` : ""}` + (e.engine ? ` [${e.engine}]` : "");
         else what = `${e.tool}: ${e.seen} message(s) on screen, ${e.labels} new follow-up(s), ${e.rePrompts} counted as corrections` + (e.engine ? ` [${e.engine}]` : "");
         say(`${hhmmss(e.at)}${e.lastAt && e.lastAt - e.at > 60000 ? "-" + hhmmss(e.lastAt) : ""}  ${what}`);
       });
