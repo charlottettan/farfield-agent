@@ -843,3 +843,13 @@ test("Chrome's status notices at the end of a window title (a heavy tab shows 'H
   assert.equal(stripStatusNotices("A - High memory usage of the system - Claude"), "A - High memory usage of the system - Claude");   // only at the very end
   assert.equal(stripStatusNotices("Plain"), "Plain");
 });
+
+test("the double-click launcher starts the app from its own folder, and can be run (executable, with a shebang)", () => {
+  const file = new URL("../Start Farfield.command", import.meta.url);
+  const text = fs.readFileSync(file, "utf8");
+  assert.ok(text.startsWith("#!/bin/bash\n"));
+  assert.match(text, /cd "\$\(dirname "\$0"\)" \|\| exit 1/);
+  assert.match(text, /exec node src\/cli\.js app/);
+  assert.ok(fs.statSync(file).mode & 0o100, "the owner execute bit must be set so a double-click works");
+  assert.ok(!/caffeinate|sudo|launchctl/.test(text), "it must not change power settings, ask for admin rights, or install anything");
+});

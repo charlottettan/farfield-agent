@@ -1,4 +1,4 @@
-# Farfield desktop agent (v0.6.4, prototype)
+# Farfield desktop agent (v0.6.5, prototype)
 
 Watches the folders you choose for new Excel, Word and PowerPoint files. When a new file appears, it keeps a private
 copy as the "AI version". When the file is later saved with changes, it records what changed. If you have joined a
@@ -57,6 +57,12 @@ What it produces: the same records as the browser extension. Each task in a chat
 - **Step one on a real machine:** open a test chat (nothing private) and run `node src/cli.js screen dump --delay 5`, then switch to the chat window. It saves what Farfield can see to `dumps/` and prints what it understood. Send that file and the fitting can be done properly.
 
 **How it tells a correction from a new request.** See `src/screen/classify.js`. It is a scoring rule that gives reasons for every decision, not a model. On made-up finance chats it scored 33 of 33 on the set it was tuned on, which means nothing, and 12 of 16 on a second set written afterwards, finding 3 of 6 real corrections and wrongly flagging none. It misses corrections that do not reuse the AI's words (for example "Too many acronyms, spell them out"), so rework is more likely to be under-counted than over-counted. Real accuracy is unknown until it is checked on real, labelled chats.
+
+## Starting it, and what "continuous" means
+- **Start:** double-click `Start Farfield.command` (it opens Terminal and runs `node src/cli.js app`), or run that command yourself. It uses Terminal's Accessibility permission, which is why it is started from Terminal and not as a hidden background program (a background program would need its own permission, and a signed app, which does not exist yet).
+- **It is continuous while it runs.** Every few seconds it looks at the window in front; a new chat is picked up on its own, so nothing needs restarting for a new chat. Restart it only after installing an update, after a reboot, or after closing its Terminal window. A Mac that is asleep captures nothing.
+- **Start at login:** add `Start Farfield.command` under System Settings > General > Login Items (the exact menu wording may differ by macOS version; it has not been tried).
+- **What it can and cannot see:** only the window in front and only its visible tab (not background tabs or windows), and only about every 10 seconds. A message needs to be on screen for a few seconds to be caught. First prompts are never saved; follow-ups are.
 
 ## Try it on Windows (PowerShell)
 1. Install Node.js 22 or newer. No other installs are needed.
