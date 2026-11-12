@@ -19,6 +19,13 @@ const CASES = [
   ["Build a pivot table of revenue by region", "Spreadsheet help"],
   ["Reply to Tim and say we can meet Thursday", "Email draft"],
   ["Compare the two vendors' pricing and give me a valuation estimate", "Research and analysis"],
+  // added with the five kinds that used to fall into the catch-all
+  ["Can you write a LinkedIn post announcing our new Boston office", "Social post or announcement"],
+  ["Help me tailor my resume for an analyst role", "Job application"],
+  ["Write a cover letter for the Goldman analyst role", "Job application"],
+  ["Brainstorm names for our new savings product", "Brainstorming"],
+  ["Help me think through whether to take this offer", "Advice and decisions"],
+  ["Make a project timeline with milestones for the migration", "Planning"],
   ["hello there", null],
   ["thanks", null],
   ["", null],
@@ -65,10 +72,10 @@ test("workflow naming: task (default) uses a label only, tool uses the tool, fir
   assert.equal(name("first-prompt", "off"), "Summary");            // a mode that keeps no wording never keeps the opening line either
 });
 
-test("workflow naming: an unrecognised kind of task falls back to '<Tool> chat'", () => {
+test("workflow naming: an unrecognised kind of task falls back to '<Tool> chat (unsorted)', so a catch-all never looks like a real group", () => {
   const c = clock(); const o = createObserver({ now: c.now, mode: "full" });
   const r = o.feed({ nodes: L(["You", "Good morning, are you there"], ["Claude", "Yes, how can I help?"]) }, tool);
-  assert.equal(r.sessions[0].workflow, "Claude chat");
+  assert.equal(r.sessions[0].workflow, "Claude chat (unsorted)");
 });
 
 test("workflow naming: a new task in the same chat is its own workflow, and its corrections belong to it", () => {
@@ -85,11 +92,22 @@ test("workflow naming: a new task in the same chat is its own workflow, and its 
   assert.notEqual(r2.rePrompts[0].sessionId, r1.rePrompts[0].sessionId);
 });
 
-test("workflow naming: a chat that began before the watcher saw it has no known start, so it keeps the tool name", () => {
+test("workflow naming: a chat that began before the watcher saw it has no known start, so it is unsorted", () => {
   const c = clock(); const o = createObserver({ now: c.now, mode: "full" });
   const r = o.feed({ nodes: [...L(["Claude", "an earlier reply"]), ...L(["You", "Make it shorter and more formal"], ["Claude", "Shorter."])] }, tool);
   assert.equal(r.rePrompts.length, 1);
-  assert.equal(r.rePrompts[0].workflow, "Claude chat");
+  assert.equal(r.rePrompts[0].workflow, "Claude chat (unsorted)");
+});
+
+test("a new piece of work of a different kind is a new workflow, not a re-prompt, even without 'separately'", () => {
+  const c = clock(); const o = createObserver({ now: c.now, mode: "full" });
+  const chat = [...OPEN,
+    ...L(["You", "Great. Now draft an email to the board sending this summary."], ["Claude", "Dear board, please find the summary."]),
+    ...L(["You", "Make it less formal"], ["Claude", "Hi all, here's the summary."])];
+  const r = o.feed({ nodes: chat }, tool);
+  assert.equal(r.sessions.at(-1).workflow, "Email draft");               // the email is its own task (the summary had no rework, so it is not reported)
+  assert.equal(r.rePrompts.length, 1);                                   // only "make it less formal" is rework
+  assert.equal(r.rePrompts[0].workflow, "Email draft");
 });
 
 test("workflow naming survives a restart, and what is remembered holds only a label (or the masked line, if that was chosen)", () => {

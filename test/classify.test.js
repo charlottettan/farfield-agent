@@ -86,3 +86,20 @@ test("with nothing earlier to compare against, only the message's own wording de
   assert.equal(classifyTurn("Thanks, looks good", none).label, "acceptance");
   assert.equal(classifyTurn("Separately, can you draft talking points for the Delta Inc call", none).label, "new_task");     // an explicit cue still works
 });
+
+// Re-prompts (the AI got it wrong, I'm refining) must stay apart from new requests (a separate email, a different task).
+test("corrections stay corrections; new deliverables of another kind are new tasks; more work on the same task is an extension", async () => {
+  const { classifyTurn } = await import("../src/screen/classify.js");
+  const summary = { user: "Summarize this report in five bullets", assistant: "1. Revenue grew 12%. 2. Margins held. 3. Churn fell.", task: "Summary" };
+  const code = { user: "Write a python function to parse dates", assistant: "def parse(s): return datetime.strptime(s, '%Y-%m-%d')", task: "Code" };
+  const label = (t, p = summary) => classifyTurn(t, p, 30).label;
+  for (const t of ["That's wrong, revenue grew 14%", "Make it shorter.", "Can you make it less formal?", "Can you write that again but more concise?", "Rewrite the third bullet"])
+    assert.equal(label(t), "correction", t);
+  assert.equal(label("That throws a TypeError", code), "correction");
+  for (const t of ["Now draft an email to the board sending this summary.", "Great. Now prepare talking points for my call with Acme tomorrow.",
+    "Also draft a separate email to the team about the offsite.", "Help me build an Excel formula that sums column B when column A says Paid.",
+    "Can you also write a LinkedIn post announcing our new Boston office?"])
+    assert.equal(label(t), "new_task", t);
+  assert.equal(label("Write a test for this function", code), "extension");
+  assert.equal(label("Make a pivot table of this", { user: "Write a formula to sum column B", assistant: "=SUM(B:B)", task: "Spreadsheet help" }), "extension");
+});

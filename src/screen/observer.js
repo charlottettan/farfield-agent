@@ -40,9 +40,11 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
       convs.push({
         id: s.id, tool: { id: s.tool, name: String(s.name || s.tool) }, titleHash: String(s.titleHash || ""),
         keys: new Set(s.keys.filter((k) => typeof k === "string")), userCount: Number(s.userCount) || 0,
-        episodes: (Array.isArray(s.episodes) ? s.episodes : []).map((e) => ({ n: Number(e.n) || 0, startedAt: Number(e.startedAt) || 0, corrections: Number(e.corrections) || 0, reviewSeconds: Number(e.reviewSeconds) || 0, workflow: typeof e.workflow === "string" ? e.workflow.slice(0, 120) : "" })),
-        lastAt: Number(s.lastAt) || 0, assistantSeenAt: Number(s.assistantSeenAt) || 0, prev: { user: "", assistant: "" },
+        episodes: (Array.isArray(s.episodes) ? s.episodes : []).map((e) => ({ n: Number(e.n) || 0, startedAt: Number(e.startedAt) || 0, corrections: Number(e.corrections) || 0, reviewSeconds: Number(e.reviewSeconds) || 0, workflow: typeof e.workflow === "string" ? e.workflow.slice(0, 120) : "", kind: typeof e.kind === "string" ? e.kind.slice(0, 40) : "" })),
+        lastAt: Number(s.lastAt) || 0, assistantSeenAt: Number(s.assistantSeenAt) || 0, prev: { user: "", assistant: "", task: "" },
       });
+      const c = convs[convs.length - 1];
+      if (c.episodes.length) c.prev.task = c.episodes[c.episodes.length - 1].kind;   // so a restarted watcher still knows what task is under way
     }
   }
   restore(state);
@@ -79,9 +81,12 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
   }
 
   // The name of the workflow a task belongs to, worked out once, from the message that started the task.
+  // "<Tool> chat" is the deliberate name in "tool" mode. In the other modes, a task that could not be sorted is "<Tool> chat (unsorted)",
+  // so a catch-all row is never mistaken for a real group.
   function workflowFor(tool, text) {
-    const fallback = tool.name + " chat";
-    if (naming === "tool" || !text) return fallback;
+    if (naming === "tool") return tool.name + " chat";
+    const fallback = unsorted(tool);
+    if (!text) return fallback;
     const kind = taskKind(text);
     if (naming === "first-prompt" && mode !== "off") {
       const line = firstSentence(text);
@@ -91,9 +96,12 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
     return kind ? kind.label : fallback;
   }
 
+  const unsorted = (tool) => naming === "tool" ? tool.name + " chat" : tool.name + " chat (unsorted)";
+  const kindOf = (text) => (taskKind(text) || {}).label || "";
+
   function sessionRecord(c, ep, t) {
     return {
-      id: "scr_" + h(c.id + ":" + ep.n).slice(0, 14), site: c.tool.name, workflow: ep.workflow || c.tool.name + " chat",
+      id: "scr_" + h(c.id + ":" + ep.n).slice(0, 14), site: c.tool.name, workflow: ep.workflow || unsorted(c.tool),
       startedAt: ep.startedAt, lastAt: t, attempts: 1 + ep.corrections, regens: 0,
       gapSeconds: Math.round(ep.reviewSeconds), done: false, source: "live",
     };
@@ -111,7 +119,7 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
     let c = find(tool, keys, titleHash, t);
     const fresh = !c;
     if (fresh) {
-      c = { id: "c_" + h(tool.id + "|" + titleHash + "|" + keys[0]).slice(0, 12), tool, titleHash, keys: new Set(), userCount: 0, lastAt: t, episodes: [], prev: { user: "", assistant: "" }, assistantSeenAt: 0 };
+      c = { id: "c_" + h(tool.id + "|" + titleHash + "|" + keys[0]).slice(0, 12), tool, titleHash, keys: new Set(), userCount: 0, lastAt: t, episodes: [], prev: { user: "", assistant: "", task: "" }, assistantSeenAt: 0 };
       convs.push(c);
       out.changed = true;
     }
@@ -119,7 +127,7 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
     // a chat always begins with the person's message, so an assistant reply at the very top of what is on screen means it began earlier
     const beganEarlier = fresh && turns[0].role === "assistant";
     c.lastAt = t;
-    const ensureEpisode = () => { if (!c.episodes.length) c.episodes.push({ n: 0, startedAt: t, corrections: 0, reviewSeconds: 0, workflow: "" }); return c.episodes[c.episodes.length - 1]; };
+    const ensureEpisode = () => { if (!c.episodes.length) c.episodes.push({ n: 0, startedAt: t, corrections: 0, reviewSeconds: 0, workflow: "", kind: "" }); return c.episodes[c.episodes.length - 1]; };
 
     turns.forEach((turn, i) => {
       const k = keys[i];
@@ -136,7 +144,8 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
       if (first) {                                               // the first prompt is not a re-prompt
         const ep0 = ensureEpisode();
         ep0.workflow = workflowFor(tool, turn.text);             // the first prompt starts the task, so it names it (only the label or masked line is kept)
-        c.prev.user = turn.text;
+        ep0.kind = kindOf(turn.text);
+        c.prev.user = turn.text; c.prev.task = ep0.kind;
         return;
       }
       const gap = c.assistantSeenAt ? (t - c.assistantSeenAt) / 1000 : 0;
@@ -144,8 +153,9 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
       out.labels.push({ text: turn.text, ...cls });
       if (cls.label === "new_task") {
         ensureEpisode();
-        c.episodes.push({ n: c.episodes.length, startedAt: t, corrections: 0, reviewSeconds: 0, workflow: workflowFor(tool, turn.text) });
-        c.prev = { user: turn.text, assistant: "" };
+        const kind = kindOf(turn.text);
+        c.episodes.push({ n: c.episodes.length, startedAt: t, corrections: 0, reviewSeconds: 0, workflow: workflowFor(tool, turn.text), kind });
+        c.prev = { user: turn.text, assistant: "", task: kind };
         return;
       }
       const ep = ensureEpisode();
@@ -155,7 +165,7 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
       ep.reviewSeconds += Math.min(gap, 600);
       const sessionId = "scr_" + h(c.id + ":" + ep.n).slice(0, 14);
       const rec = A.buildRePrompt({
-        id: "scrp_" + h(sessionId + k).slice(0, 14), sessionId, site: tool.name, workflow: ep.workflow || tool.name + " chat",
+        id: "scrp_" + h(sessionId + k).slice(0, 14), sessionId, site: tool.name, workflow: ep.workflow || unsorted(tool),
         attemptIndex: ep.corrections + 1, kind: "followup", text: turn.text, mode, now: t, user, reviewSec: gap, source: "live",
       });
       if (rec) out.rePrompts.push(rec);

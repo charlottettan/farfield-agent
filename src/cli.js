@@ -137,7 +137,7 @@ export async function main(argv, env = process.env, deps = {}) {
     if (sub === "naming") {
       const mode = pos[2];
       const explain = {
-        task: 'name each workflow by the kind of task it opened with ("Summary", "Email draft"); only a label is kept, and the same kind of task groups together across tools and people (the default)',
+        task: 'name each workflow by the kind of task it opened with ("Summary", "Email draft"); only a label is kept, and the same kind of task groups together across tools and people; a task it cannot sort is "<Tool> chat (unsorted)" (the default)',
         tool: 'name each workflow after the tool ("Claude chat"); nothing is grouped across tools',
         "first-prompt": "name each workflow with the opening line of the task, masked or not following the privacy mode (a mode that keeps no wording falls back to the task label); more descriptive, but chats rarely group together and the opening line is kept",
       };
