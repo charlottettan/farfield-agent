@@ -38,6 +38,15 @@ export function stripStatusNotices(t) {
   return t;
 }
 
+// The chat's own title: the window title with the browser's tail, status notices and the tool's name removed. Empty for a new, untitled chat.
+const DEFAULT_TITLES = /^(new chat|untitled|untitled chat|new conversation|chat|home|claude|chatgpt|gemini|google gemini|copilot|microsoft copilot)$/i;
+export function chatTitle(win, tool) {
+  let t = stripStatusNotices(stripBrowserSuffix(cleanTitle(win && win.title)));
+  const names = (tool && (tool.names || [tool.name])) || [];
+  if (names.length) t = t.replace(new RegExp(`\\s*[-–—|:]\\s*(?:${names.map(esc).join("|")})\\s*$`, "i"), "").trim();
+  return DEFAULT_TITLES.test(t) ? "" : t;
+}
+
 // The shape of a title: names of AI tools, browsers and a few common apps are kept, every other word becomes a pattern of letters and
 // digits. It shows whether a title looks like "<something> - Claude - Google Chrome" without keeping what the something is.
 const KEEP_WORDS = new Set("claude chatgpt gemini copilot google microsoft openai chrome safari firefox edge brave arc opera vivaldi mozilla chromium gmail docs sheets slides outlook word excel powerpoint terminal iterm finder slack teams zoom notion code".split(" "));

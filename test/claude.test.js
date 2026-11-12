@@ -55,12 +55,12 @@ test("claude: who said it falls back to the bubble and reply classes when the he
   // replace the heading's wording, and its repeated copy, with something that matches neither "You" nor "Claude"
   const reword = (block) => { const h = block.find((n) => n.role === "AXHeading"); const old = h.text; return block.map((n) => (n.text === old && (n.role === "AXHeading" || n.role === "AXStaticText") ? { ...n, text: "Zed: " + old.split(": ")[1] } : n)); };
   const r = claudeTurns(PAGE(LIST(reword(CLAUDE(1, 2, ["A reply."])), reword(USER(2, 2, ["A question", "second line"])))));
-  assert.deepEqual(r.turns, [{ role: "assistant", text: "A reply." }, { role: "user", text: "A question\nsecond line" }]);
+  assert.deepEqual(r.turns.map(({ role, text }) => ({ role, text })), [{ role: "assistant", text: "A reply." }, { role: "user", text: "A question\nsecond line" }]);
 });
 
 test("claude: the draft box and anything after the message list is never a message", () => {
   const r = claudeTurns(PAGE(LIST(USER(1, 1, ["Hello there"])), COMPOSER));
-  assert.deepEqual(r.turns, [{ role: "user", text: "Hello there" }]);
+  assert.deepEqual(r.turns.map(({ role, text }) => ({ role, text })), [{ role: "user", text: "Hello there" }]);
 });
 
 test("claude: text before the first marker is not attributed to anyone, and a page without the message list gives nothing", () => {
@@ -108,6 +108,29 @@ test("claude: a message list read from its tail (the group at depth 0, the first
     ...[...USER(7, 8, ["Make it shorter"]), ...CLAUDE(8, 8, ["Shorter version: Acme grew 8%."])].map((n) => at(n, 1)),
   ];
   const r = claudeTurns(tail);
-  assert.deepEqual(r.turns, [{ role: "user", text: "Make it shorter" }, { role: "assistant", text: "Shorter version: Acme grew 8%." }]);
+  assert.deepEqual(r.turns.map(({ role, text }) => ({ role, text })), [{ role: "user", text: "Make it shorter" }, { role: "assistant", text: "Shorter version: Acme grew 8%." }]);
   assert.ok(!JSON.stringify(r).includes("older answer"));
+});
+
+test("claude: each message carries its position in the whole chat, from the 'Message N of M' marker", () => {
+  const r = claudeTurns(PAGE(LIST(USER(5, 8, ["Make it shorter"]), CLAUDE(6, 8, ["Shorter."]), USER(7, 8, ["Now more formal"]))));
+  assert.deepEqual(r.turns.map((t) => [t.role, t.index, t.total]), [["user", 5, 8], ["assistant", 6, 8], ["user", 7, 8]]);
+  // a marker that does not read "Message N of M" gives no position, and nothing breaks
+  const odd = PAGE(LIST([{ ...ARTICLE(1, 1), text: "Something else" }, ...USER(1, 1, ["Hello"]).slice(1)]));
+  const r2 = claudeTurns(odd);
+  assert.equal(r2.turns[0].text, "Hello");
+  assert.equal(r2.turns[0].index, undefined);
+});
+
+test("claude: the first message on screen is only a first prompt if it is message 1; a correction at message 5 still counts", () => {
+  const T0 = 1_700_000_000_000; let t = T0;
+  const tool = { id: "claude", name: "Claude" };
+  // a watcher that has never seen this chat, and the first message on screen is number 5 (the chat began earlier)
+  const o = createObserver({ now: () => t, mode: "full" });
+  const r = o.feed({ nodes: PAGE(LIST(USER(5, 6, ["That is wrong, the deadline is November 18 not November 14"]), CLAUDE(6, 6, ["Corrected: November 18."]))) }, tool);
+  assert.equal(r.rePrompts.length, 1);
+  // the same words as message 1 are the first prompt, and never a re-prompt
+  const o2 = createObserver({ now: () => t, mode: "full" });
+  const r2 = o2.feed({ nodes: PAGE(LIST(USER(1, 2, ["That is wrong, the deadline is November 18 not November 14"]), CLAUDE(2, 2, ["Corrected: November 18."]))) }, tool);
+  assert.equal(r2.rePrompts.length, 0);
 });

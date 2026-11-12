@@ -14,7 +14,7 @@ export function extractTurns(snapshot, tool) {
   // A reader written for this site's page structure is used first, when the page structure was captured.
   if (tool && ADAPTERS[tool.id]) {
     const r = ADAPTERS[tool.id](nodes);
-    const turns = r ? r.turns.map((t) => ({ role: t.role, text: norm(t.text).slice(0, MAX_TURN) })).filter((t) => t.text) : [];
+    const turns = r ? r.turns.map((t) => ({ role: t.role, text: norm(t.text).slice(0, MAX_TURN), ...(t.index ? { index: t.index, total: t.total } : {}) })).filter((t) => t.text) : [];
     if (turns.some((t) => t.role === "user")) return { turns, composer: r.composer || "", basis: "adapter:" + tool.id };
   }
   let composer = "";

@@ -1,4 +1,4 @@
-# Farfield desktop agent (v0.6.5, prototype)
+# Farfield desktop agent (v0.8.0, prototype)
 
 Watches the folders you choose for new Excel, Word and PowerPoint files. When a new file appears, it keeps a private
 copy as the "AI version". When the file is later saved with changes, it records what changed. If you have joined a
@@ -57,6 +57,19 @@ What it produces: the same records as the browser extension. Each task in a chat
 - **Step one on a real machine:** open a test chat (nothing private) and run `node src/cli.js screen dump --delay 5`, then switch to the chat window. It saves what Farfield can see to `dumps/` and prints what it understood. Send that file and the fitting can be done properly.
 
 **How it tells a correction from a new request.** See `src/screen/classify.js`. It is a scoring rule that gives reasons for every decision, not a model. On made-up finance chats it scored 33 of 33 on the set it was tuned on, which means nothing, and 12 of 16 on a second set written afterwards, finding 3 of 6 real corrections and wrongly flagging none. It misses corrections that do not reuse the AI's words (for example "Too many acronyms, spell them out"), so rework is more likely to be under-counted than over-counted. Real accuracy is unknown until it is checked on real, labelled chats.
+
+## Keeping a chat together (restarts, long chats, scrolling)
+The watcher recognises a chat in three ways, strongest first: messages on screen that it has seen before (matched by a **salted one-way fingerprint**, never by text), a fingerprint of the chat's **title**, or neither (a new chat). It remembers only fingerprints, counts and times, kept on this computer, so a restarted watcher still recognises a chat it knew, even when the first message has scrolled out of view. `screen forget --memory` clears that memory. Limits: 400 fingerprints per chat, 30 chats, nothing older than a week.
+Whether a message is a **first prompt** (never counted as a re-prompt): when the page numbers its messages (Claude: "Message 3 of 8") message 1 is; otherwise the first message of a chat it has never seen, unless a reply comes before it on screen (then the chat began earlier). With no earlier message to compare against, the classifier relies on the message's own wording only, and a weak cue alone is not counted.
+Not solved: Gemini does not number its messages, so a chat the watcher has never seen, whose top-of-screen message is the person's own, is still treated as new.
+
+## Naming and grouping workflows
+Every task in a chat (a chat with two tasks gives two) becomes a workflow, named from the message that started it. `node src/cli.js screen naming <task|tool|first-prompt>` chooses how:
+- **task (default):** the kind of task it opened with: Summary, Email draft, Spreadsheet help, Slides, Code, Memo or report, Compliance writing, Meeting prep, Research and analysis, Editing. Only the label is kept, never the message, and the same kind of task lands in one workflow across tools. Once chats are synced to a company, that is what lets Farfield say "several people made the same correction on summaries". It is a keyword rule (`src/screen/task.js`), checked only on made-up prompts (17 of 17, but written together with the rules, so that figure is optimistic); an unrecognised task is named "<Tool> chat".
+- **tool:** "<Tool> chat". Nothing groups across tools.
+- **first-prompt:** the opening line of the task, masked or not according to the privacy mode (a mode that keeps no wording falls back to the task label). More descriptive, but chats rarely group, and the opening line is kept (masked redaction is a heuristic and misses lowercase names).
+A new task started inside an existing chat gets its own workflow ("Separately, draft an email..." starts "Email draft"). A chat that began before the watcher saw it has no known start, so it keeps "<Tool> chat". A change of setting applies to tasks started afterwards.
+Tested against the real backend: two people's chats about the same kind of task arrive as one workflow with two people.
 
 ## Starting it, and what "continuous" means
 - **Start:** double-click `Start Farfield.command` (it opens Terminal and runs `node src/cli.js app`), or run that command yourself. It uses Terminal's Accessibility permission, which is why it is started from Terminal and not as a hidden background program (a background program would need its own permission, and a signed app, which does not exist yet).

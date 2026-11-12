@@ -740,15 +740,23 @@ test("the Swift reader can jump to a labelled element and read only the end of i
   assert.ok(/if d == 0 && tailing/.test(src), "only the first level is cut to its tail");
 });
 
-test("each tool's chats get their own workflow row, instead of all landing in one 'Unassigned workflow'", () => {
-  let t = 1_700_000_000_000; const o = createObserver({ now: () => t, mode: "full" });
+test("the same kind of task groups into one workflow across tools by default, and 'tool' naming gives one row per tool", () => {
+  let t = 1_700_000_000_000;
   const mk = (who) => [...lines(["You", "Summarize the Q3 earnings call for Acme Corp"], [who, "Revenue was $1.2 billion."]), ...lines(["You", "The revenue figure is wrong, it was $1.1 billion"])];
-  const a = o.feed({ nodes: mk("Claude") }, { id: "claude", name: "Claude" });
-  t += 1000;
-  const b = o.feed({ nodes: mk("Gemini") }, { id: "gemini", name: "Gemini" });
-  assert.equal(a.sessions[0].workflow, "Claude chat"); assert.equal(a.rePrompts[0].workflow, "Claude chat");
-  assert.equal(b.sessions[0].workflow, "Gemini chat"); assert.equal(b.rePrompts[0].workflow, "Gemini chat");
-  assert.ok(!JSON.stringify([a, b]).includes("Unassigned"));
+  const run = (naming) => {
+    const o = createObserver({ now: () => t, mode: "full", naming });
+    const a = o.feed({ nodes: mk("Claude") }, { id: "claude", name: "Claude" });
+    t += 1000;
+    const b = o.feed({ nodes: mk("Gemini") }, { id: "gemini", name: "Gemini" });
+    return [a, b];
+  };
+  const [a, b] = run("task");
+  assert.equal(a.sessions[0].workflow, "Summary"); assert.equal(a.rePrompts[0].workflow, "Summary");
+  assert.equal(b.sessions[0].workflow, "Summary"); assert.equal(b.rePrompts[0].workflow, "Summary");     // the same workflow, from two tools
+  assert.equal(a.sessions[0].site, "Claude"); assert.equal(b.sessions[0].site, "Gemini");
+  const [c, d] = run("tool");
+  assert.equal(c.sessions[0].workflow, "Claude chat"); assert.equal(d.sessions[0].workflow, "Gemini chat");
+  assert.ok(![a, b, c, d].some((r) => JSON.stringify(r).includes("Unassigned")));
 });
 
 test("the observer reports how many messages were on screen, even when none are new", () => {

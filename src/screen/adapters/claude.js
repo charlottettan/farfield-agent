@@ -11,6 +11,7 @@
 const norm = (s) => String(s || "").replace(/\r/g, "").trim();
 const TIME = /^(just now|\d+\s+(second|minute|hour|day|week|month|year)s?\s+ago)$/i;
 const isArticle = (n) => n.role === "AXGroup" && n.sub === "AXDocumentArticle";
+const POSITION = /^message\s+(\d+)\s+of\s+(\d+)$/i;           // "Message 3 of 8": where this message sits in the whole chat
 
 function messagesRegion(nodes) {
   const i = nodes.findIndex((n) => n && n.role === "AXGroup" && n.sub === "AXApplicationGroup" && /^chat messages$/i.test(norm(n.text)));
@@ -42,12 +43,12 @@ export function claudeTurns(nodes) {
   const blocks = [];
   for (const n of region) {
     if (!n) continue;
-    if (isArticle(n)) blocks.push([]);
-    else if (blocks.length) blocks[blocks.length - 1].push(n);         // anything before the first message marker is not a message
+    if (isArticle(n)) { const m = POSITION.exec(norm(n.text)); blocks.push({ index: m ? Number(m[1]) : undefined, total: m ? Number(m[2]) : undefined, nodes: [] }); }
+    else if (blocks.length) blocks[blocks.length - 1].nodes.push(n);   // anything before the first message marker is not a message
   }
 
   const turns = [];
-  for (const block of blocks) {
+  for (const { index, total, nodes: block } of blocks) {
     const heading = block.find((n) => n.role === "AXHeading" && String(n.dom || "").includes("sr-only"));
     const headingText = norm(heading && heading.text);
     const role = roleOf(block, headingText);
@@ -58,7 +59,7 @@ export function claudeTurns(nodes) {
       .map((n) => norm(n.text))
       .filter((t) => t !== headingText && !labels.has(t) && !TIME.test(t));
     const text = parts.join("\n");
-    if (norm(text)) turns.push({ role, text });
+    if (norm(text)) turns.push({ role, text, ...(index ? { index, total } : {}) });
   }
   return { turns, composer: "" };
 }

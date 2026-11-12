@@ -126,3 +126,50 @@ test("after leaving, the agent stops sending and keeps nothing of the login", { 
   assert.equal(r.scan.recorded, 1);                      // still recorded on this computer
   assert.equal(r.synced.skipped, "not_joined");          // but nothing is sent
 });
+
+// Two different people, each with their own computer, chat about the same kind of task. Once synced, the company sees ONE workflow with two people.
+async function personAgent(be, adminToken, email) {
+  const r = await fetch(be.url + "/v1/admin/invites", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + adminToken }, body: JSON.stringify({ role: "member", email }) });
+  assert.equal(r.status, 201);
+  const code = (await r.json()).code;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ff-person-"));
+  const home = path.join(root, "home"); fs.mkdirSync(home, { recursive: true });
+  saveConfig(home, { ...defaults(), folders: [], screen: { enabled: true, storeMode: "full", intervalSeconds: 2, tools: ["claude", "gemini"] } });
+  const clock = { t: Date.now() };
+  const state = { win: { app: "Google Chrome", title: "x - Claude - Google Chrome - Me" }, nodes: [] };
+  const probe = { title: async () => state.win, tree: async () => ({ nodes: state.nodes }) };
+  const agent = createAgent({ home, now: () => clock.t, probe });
+  await agent.sync.join({ server: be.url, code, email, consent: true, deviceLabel: agent.deviceLabel });
+  return { agent, state, clock };
+}
+const Ln = (...p) => p.flatMap(([w, x]) => [{ role: "AXStaticText", text: w }, { role: "AXStaticText", text: x }]);
+
+test("two people's chats about the same kind of task become one workflow with two people in the company's data", { skip: !HAVE && "backend folder not found" }, async (t) => {
+  const be = await startBackend(); t.after(be.stop);
+  const adminCode = await newOrg(be.url, "full", "boss@firm.com");
+  const boss = createAgent({ home: (() => { const h = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ff-boss-")), "home"); fs.mkdirSync(h, { recursive: true }); saveConfig(h, { ...defaults(), folders: [] }); return h; })() });
+  await boss.sync.join({ server: be.url, code: adminCode, email: "boss@firm.com", consent: true, deviceLabel: boss.deviceLabel });
+  const adminToken = (await boss.storage.local.get("company")).company.token;
+
+  const people = [];
+  for (const [email, tool, win, topic] of [["ana@firm.com", "Claude", "Q3 notes - Claude - Google Chrome - Ana", "Summarize the Q3 earnings call for Acme Corp"], ["raj@firm.com", "Gemini", "Board recap - Google Gemini", "Summarize the board meeting from last week"]]) {
+    const p = await personAgent(be, adminToken, email);
+    p.state.win = { app: "Google Chrome", title: win };
+    p.state.nodes = Ln(["You", topic], [tool, "Here is a first version."]);
+    p.who = tool;
+    people.push(p);
+  }
+  for (const p of people) { await p.agent.tick(); p.clock.t += 40_000; }
+  people[0].state.nodes = [...people[0].state.nodes, ...Ln(["You", "Make it shorter and more formal"])];
+  people[1].state.nodes = [...people[1].state.nodes, ...Ln(["You", "Use bullet points, not paragraphs"])];
+  for (const p of people) { const r = await p.agent.tick(); assert.equal(r.synced.ok, true, JSON.stringify(r.synced)); }
+
+  const org = await boss.sync.fetchOrgData();
+  const data = org.data || org;
+  const workflows = new Set(data.rePrompts.filter((r) => r.source !== "seed").map((r) => r.workflow));
+  assert.deepEqual([...workflows], ["Summary"], "both chats are the same workflow");
+  const sites = new Set(data.aiSessions.map((s) => s.site));
+  assert.deepEqual([...sites].sort(), ["Claude", "Gemini"]);
+  const authors = new Set(data.rePrompts.map((r) => r.user));
+  assert.equal(authors.size, 2, "two different people, shown by their pseudonyms");
+});

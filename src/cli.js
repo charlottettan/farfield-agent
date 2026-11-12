@@ -27,9 +27,10 @@ const USAGE = `Farfield desktop agent
   farfield-agent screen on --agree      Also read AI chat windows (ChatGPT, Claude, Gemini, Copilot) to catch re-prompts
   farfield-agent screen off
   farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine native|slow] [--scope window] [--enable-accessibility] [--keep-text]   Save the structure of one chat window (text only with --keep-text; test chat only)
+  farfield-agent screen naming <task|tool|first-prompt>   How workflows are named (default: by the kind of task)
   farfield-agent screen build           Compile the native Mac reader once (needed before screen on works at full speed)
   farfield-agent screen log             What chat reading has seen lately (no message text), to find out why something was not captured
-  farfield-agent screen forget          Delete every saved window dump
+  farfield-agent screen forget [--memory]   Delete every saved window dump (--memory also clears what chat reading remembers about chats)
   farfield-agent screen shape [file]    Print the saved window's structure without its long text, safe to share after you read it
   farfield-agent where                  Show where its files live on this computer
 `;
@@ -40,7 +41,7 @@ function parse(argv) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const k = a.slice(2);
-      if (k === "agree" || k === "delete-data" || k === "no-open" || k === "any" || k === "enable-accessibility" || k === "keep-text") flags[k] = true;
+      if (k === "agree" || k === "delete-data" || k === "no-open" || k === "any" || k === "enable-accessibility" || k === "keep-text" || k === "memory") flags[k] = true;
       else flags[k] = argv[++i];
     } else pos.push(a);
   }
@@ -133,6 +134,18 @@ export async function main(argv, env = process.env, deps = {}) {
       say(keep ? "Saved to " + file + " WITH the text that was on the window. Look through it before sharing it, and delete it when done (screen forget)." : "Saved to " + file + ". Only the structure was saved: long text is reduced to a length and a letter pattern.");
       return 0;
     }
+    if (sub === "naming") {
+      const mode = pos[2];
+      const explain = {
+        task: 'name each workflow by the kind of task it opened with ("Summary", "Email draft"); only a label is kept, and the same kind of task groups together across tools and people (the default)',
+        tool: 'name each workflow after the tool ("Claude chat"); nothing is grouped across tools',
+        "first-prompt": "name each workflow with the opening line of the task, masked or not following the privacy mode (a mode that keeps no wording falls back to the task label); more descriptive, but chats rarely group together and the opening line is kept",
+      };
+      if (!explain[mode]) { say("Use: screen naming task | tool | first-prompt\n  task          " + explain.task + "\n  tool          " + explain.tool + "\n  first-prompt  " + explain["first-prompt"]); return mode ? 1 : 0; }
+      cfg.screen = { ...(cfg.screen || {}), workflowNames: mode }; saveConfig(home, cfg);
+      say(`Workflows will be named by "${mode}": ${explain[mode]}. It applies to tasks started from now on; existing ones keep their names.`);
+      return 0;
+    }
     if (sub === "build") {
       say("Compiling the native reader with Swift. The first time can take a few minutes.");
       const bin = await (deps.ensureNative || ensureNative)({ binDir: path.join(home, "bin") });
@@ -164,6 +177,11 @@ export async function main(argv, env = process.env, deps = {}) {
       const all = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
       all.forEach((f) => fs.unlinkSync(path.join(dir, f)));
       say(all.length ? `Deleted ${all.length} saved file(s) from ${dir}.` : "No saved window dumps to delete.");
+      if (flags.memory) {
+        const a = createAgent({ home });
+        await a.storage.local.remove(["observerState", "observerSalt", "screenLog", "screenLast"]);
+        say("Cleared what chat reading remembers about chats it has seen (fingerprints and its log).");
+      }
       return 0;
     }
     if (sub === "shape") {
@@ -176,7 +194,7 @@ export async function main(argv, env = process.env, deps = {}) {
       say("\nThis shows labels and structure, not long text. Read it through before you share it.");
       return 0;
     }
-    say("Use: screen on --agree | screen off | screen dump | screen build | screen log | screen shape [file] | screen forget"); return 1;
+    say("Use: screen on --agree | screen off | screen dump | screen build | screen log | screen naming | screen shape [file] | screen forget"); return 1;
   }
 
   if (cmd === "app") {

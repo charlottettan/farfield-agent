@@ -71,3 +71,18 @@ test("measured on a second set written after tuning (the fairer number, still ma
   rows.filter((r) => r.got.label !== r.want).forEach((r) => console.log(`  want ${r.want}, got ${r.got.label} (${r.got.confidence}): "${r.text.slice(0, 70)}"`));
   assert.ok(rows.length >= 15);
 });
+
+test("with nothing earlier to compare against, only the message's own wording decides (a correction seen first is still a correction)", () => {
+  const none = {};
+  const fix = classifyTurn("That is wrong, the deadline is November 18 not November 14", none);
+  assert.equal(fix.label, "correction");
+  assert.equal(countsAsRework(fix), true);
+  assert.equal(countsAsRework(classifyTurn("The table is missing the Q2 comparison column", none)), true);
+  assert.equal(countsAsRework(classifyTurn("Make it shorter and more formal", none)), true);
+  // no cue at all and no context: not enough to call it rework, and never a confident new task by lack of overlap
+  const bare = classifyTurn("Quarterly figures for the Beta Corp merger", none);
+  assert.equal(countsAsRework(bare), false);
+  assert.notEqual(bare.label === "new_task" && bare.confidence >= 0.6, true);
+  assert.equal(classifyTurn("Thanks, looks good", none).label, "acceptance");
+  assert.equal(classifyTurn("Separately, can you draft talking points for the Delta Inc call", none).label, "new_task");     // an explicit cue still works
+});

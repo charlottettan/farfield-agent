@@ -133,6 +133,8 @@ try:
         browser.close()
 finally:
     proc.terminate(); evil.shutdown()
+    try: proc.wait(timeout=10)
+    except Exception: proc.kill()
     shutil.rmtree(root, ignore_errors=True)
 
 print(f"\n{passed} checks passed, {len(failed)} failed", failed)

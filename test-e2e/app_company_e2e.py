@@ -20,7 +20,10 @@ def wait_until(fn, timeout=10):
         time.sleep(0.25)
     return False
 
-PORT = 8811; URL = f"http://127.0.0.1:{PORT}"
+import socket
+def free_port():
+    k = socket.socket(); k.bind(("127.0.0.1", 0)); p = k.getsockname()[1]; k.close(); return p
+PORT = free_port(); URL = f"http://127.0.0.1:{PORT}"
 db = tempfile.mktemp(suffix=".db")
 be = subprocess.Popen(["node", "src/main.ts"], cwd=BACKEND, env={**os.environ, "PORT": str(PORT), "DB_PATH": db, "FARFIELD_BOOTSTRAP_KEY": "k"}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 for _ in range(60):
@@ -80,6 +83,10 @@ try:
         check("and it updated the one record instead of adding another", page.inner_text("#foundText").startswith("1 correction"))
         b.close()
 finally:
-    app.terminate(); be.terminate(); shutil.rmtree(root, ignore_errors=True)
+    for proc in (app, be):
+        proc.terminate()
+        try: proc.wait(timeout=10)
+        except Exception: proc.kill()
+    shutil.rmtree(root, ignore_errors=True)
 print(f"\n{passed} checks passed, {len(failed)} failed", failed)
 sys.exit(1 if failed else 0)

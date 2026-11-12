@@ -19,7 +19,7 @@ export function defaults() {
     agentName: "AI-generated file",
     paused: false,
     // Reading AI chat windows (ChatGPT, Claude, Gemini, Copilot) to catch re-prompts. Off until someone turns it on.
-    screen: { enabled: false, storeMode: "redacted", intervalSeconds: 10, tools: ["chatgpt", "claude", "gemini", "copilot"] },
+    screen: { enabled: false, storeMode: "redacted", intervalSeconds: 10, tools: ["chatgpt", "claude", "gemini", "copilot"], workflowNames: "task" },
   };
 }
 

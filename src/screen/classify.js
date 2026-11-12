@@ -46,9 +46,12 @@ export function classifyTurn(text, prev = {}, gapSeconds = 0) {
 
   const ctx = tokens((prev.assistant || "") + " " + (prev.user || ""));
   const mine = tokens(t);
-  const overlap = containment(mine, ctx);
+  // With nothing earlier to compare against (the first message on screen, or a restarted watcher), overlap and "new names" say nothing,
+  // so only the wording of the message itself is used.
+  const hasCtx = ctx.length > 0;
+  const overlap = hasCtx ? containment(mine, ctx) : 0;
   const ctxCaps = new Set(caps((prev.assistant || "") + " " + (prev.user || "")));
-  const newEntities = caps(t).filter((w) => !ctxCaps.has(w)).length;
+  const newEntities = hasCtx ? caps(t).filter((w) => !ctxCaps.has(w)).length : 0;
   const neg = STRONG_NEG.test(t);
   const known = A.classifyPrompt(t).isCorrection;
   const back = REFERS_BACK.test(t);
@@ -62,7 +65,8 @@ export function classifyTurn(text, prev = {}, gapSeconds = 0) {
   if (back) { corr += 0.2; why.corr.push("refers to the AI's output"); }
   if (overlap >= 0.35) { corr += 0.2; why.corr.push("reuses the same words as the last answer"); }
   else if (overlap >= 0.2) corr += 0.1;
-  if (EDIT_VERB.test(t) && t.length <= 160 && newEntities < 3) { corr += 0.3; why.corr.push("asks to change how the output is worded or laid out"); }
+  const editsOutput = EDIT_VERB.test(t) && t.length <= 160 && newEntities < 3;
+  if (editsOutput) { corr += 0.3; why.corr.push("asks to change how the output is worded or laid out"); }
   if (t.length <= 160) corr += 0.1;
   if (newEntities >= 3) { corr -= 0.3; why.corr.push("but introduces several new names or numbers"); }
 
@@ -71,7 +75,7 @@ export function classifyTurn(text, prev = {}, gapSeconds = 0) {
 
   if (q) { ques += 0.5; why.ques.push("is a question"); if (back || overlap >= 0.25) { ques += 0.2; why.ques.push("about the AI's output"); } }
 
-  if (overlap < 0.1) { fresh += 0.4; why.fresh.push("shares almost no words with the last answer"); }
+  if (hasCtx && overlap < 0.1) { fresh += 0.4; why.fresh.push("shares almost no words with the last answer"); }
   if (newEntities >= 3) { fresh += 0.3; why.fresh.push("brings in several new names or numbers"); }
   if (t.length > 200) { fresh += 0.1; why.fresh.push("is a long fresh request"); }
   if (!back && !neg) fresh += 0.1;
@@ -81,6 +85,8 @@ export function classifyTurn(text, prev = {}, gapSeconds = 0) {
   const margin = top - scored[1][1];
   const confidence = Math.max(0.3, Math.min(0.95, 0.5 + margin));
   if (top < 0.25) return { label: "question", confidence: 0.35, reasons: ["not enough to tell what this is"], unsure: true };
+  // With nothing earlier to weigh a weak cue against, a "known pattern" word alone is not enough to call something a correction.
+  if (!hasCtx && label === "correction" && !(neg || editsOutput || back)) return { label: "question", confidence: 0.35, reasons: ["no earlier message to compare with, and no clear sign of a correction"], unsure: true };
   return { label, confidence: Math.round(confidence * 100) / 100, reasons: r.length ? r : reasons };
 }
 
