@@ -11,7 +11,7 @@
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const A = require("../../vendor/analysis.js");
-import { taskKind } from "./task.js";
+import { taskKind, hasPastedEmail, instructionOf } from "./task.js";
 
 export const EPISODE_GAP_MINUTES = 45;
 export const COUNT_AS_REWORK_AT = 0.6;
@@ -53,6 +53,18 @@ export function classifyTurn(text, prev = {}, gapSeconds = 0) {
   const reasons = [];
   if (!whole) return { label: "acceptance", confidence: 0.5, reasons: ["empty message"] };
   if (ACCEPT.test(whole)) return { label: "acceptance", confidence: 0.9, reasons: ["thanks or approval"] };
+  // A pasted email (someone's reply, a thread) is not the person's own words: "the date should be the 18th" inside Carlos's
+  // email is not a complaint about the AI. Only the instruction around it is judged. With no instruction, or one about
+  // answering it, it is a new email to write.
+  if (hasPastedEmail(whole)) {
+    const own = instructionOf(whole).trim();
+    if (!own || /\b(say back|write back|reply|respond|response|answer|get back to|draft (?:a |an |my )?(?:reply|response|answer)|what (?:should|do) i say)\b/i.test(own))
+      return { label: "new_task", confidence: 0.85, reasons: ["pastes an email to answer (its wording is not judged)"] };
+    if (!hasPastedEmail(own)) {
+      const c = classifyTurn(own, prev, gapSeconds);
+      return { ...c, reasons: c.reasons.concat(["only the instruction around a pasted email was judged"]) };
+    }
+  }
   const t = whole.replace(PREAMBLE, "").trim() || whole;
   if (NEW_CUE.test(t)) return { label: "new_task", confidence: 0.9, reasons: ["says it is a new or separate request"] };
   const fresh0 = newWork(t, prev);

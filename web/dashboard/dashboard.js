@@ -1483,7 +1483,7 @@ function renderTrace() {
 
   // 2b. edits to the AI's email, made in the mail app before sending (only for a workflow that has some, or for "Email draft")
   const mail = emailEditsOf(t.name), mailSends = emailSendsOf(t.name);
-  const following = store.emailFollowing && t.name === "Email draft" ? store.emailFollowing : null;
+  const following = store.emailFollowing && (store.emailFollowing.workflow || "Email draft") === t.name ? store.emailFollowing : null;
   let n = 3;
   if (mail.length || mailSends.length || following || t.name === "Email draft") {
     const em = [];

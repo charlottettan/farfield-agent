@@ -299,7 +299,7 @@ test("tracker: a draft recorded after 3 minutes away and then seen again is upda
   tr.noteReplies("Gemini", [REPLY]);
   tr.see(GMAIL, aiSpan(REPLY, SENT));
   const startedAt = t;
-  assert.deepEqual(tr.status(), { tool: "Gemini", surface: "Gmail", since: startedAt, endsAfterIdle: 3 });
+  assert.deepEqual(tr.status(), { tool: "Gemini", surface: "Gmail", workflow: "Email draft", since: startedAt, endsAfterIdle: 3 });
   t += 4 * 60 * 1000;
   const first = tr.tick();                                   // looked away (another window) for 4 minutes
   assert.equal(first.correction, null, "nothing was changed yet, so only a send is recorded");
@@ -339,4 +339,22 @@ test("screen step: an email sent and then left (another window in front) is reco
   const e = await s.storage.local.get(["corrections", "sends"]);
   assert.equal(e.corrections.length, 1);
   assert.equal(e.sends.filter((x) => x.surface === "Gmail").length, 1);
+});
+
+test("screen step: an email edit is filed with the chat it came from, even when that chat is not named \u201cEmail draft\u201d", async () => {
+  const s = setup({ email: true });
+  // a chat whose task was named "Summary": the reply it gave is then pasted into Gmail and edited
+  const chat = [N("AXStaticText", 2, "You"), N("AXStaticText", 2, "Summarize the budget review for the team"), N("AXStaticText", 2, "Gemini"), N("AXStaticText", 2, REPLY)];
+  s.state.win = GEMINI_WIN; s.state.tree = () => ({ engine: "native", nodes: chat });
+  await s.next();
+  s.state.win = GMAIL_WIN;
+  s.state.tree = () => ({ engine: "native", focus: "found", nodes: draftNodes(SENT) });
+  await s.next();
+  assert.equal((await s.storage.local.get(["emailFollowing"])).emailFollowing.workflow, "Summary");
+  s.state.tree = () => ({ engine: "native", focus: "missing", nodes: [] });
+  await s.next();
+  const d = await s.storage.local.get(["corrections", "sends", "aiSessions"]);
+  assert.equal(d.corrections[0].workflow, "Summary");
+  assert.equal(d.sends.at(-1).workflow, "Summary");
+  assert.ok(d.aiSessions.some((x) => x.workflow === "Summary"), "the same row as the chat");
 });
