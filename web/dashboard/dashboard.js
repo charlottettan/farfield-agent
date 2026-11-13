@@ -1303,6 +1303,9 @@ function emailSendsOf(name) {
   return visible(store.sends).filter((x) => x && x.workflow === name && isMailSurface(x.surface));
 }
 
+// short names for the kinds of change (colours: tagClass)
+const catShort = (k) => ({ "Factual/Data Correction": "factual", "Terminology/Context Mismatch": "terminology", "Tone/Style Edit": "tone", "Content Addition/Removal": "content" })[k] || String(k || "").toLowerCase();
+
 function renderWorkflowList(rows) {
   const box = $("wfItems");
   box.textContent = "";
@@ -1500,16 +1503,20 @@ function renderTrace() {
     mail.slice(0, 5).forEach((c) => {
       const hd = el("div", "trow");
       hd.appendChild(el("span", "tag tag-content", c.surface || "Email"));
-      hd.appendChild(el("span", "tt", (c.wordsAdded || 0) + " words added, " + (c.wordsRemoved || 0) + " removed" + (c.agent ? " in " + c.agent + "\u2019s draft" : "")));
-      if (c.category) hd.appendChild(el("span", "tag " + (c.category === "Factual/Data Correction" ? "tag-factual" : c.category === "Terminology/Context Mismatch" ? "tag-term" : c.category === "Tone/Style Edit" ? "tag-tone" : "tag-content"), c.category));
-      (Array.isArray(c.categories) ? c.categories.filter((k) => k !== c.category) : []).forEach((k) => hd.appendChild(el("span", "tag " + tagClass(k), k)));
-      hd.appendChild(el("span", "note", fmtMin(c.estimatedMinutes || 0) + " (estimated)" + (c.timestamp ? ", " + fmtDate(c.timestamp) : "")));
+      const parts = Array.isArray(c.edits) ? c.edits.length : 0;
+      hd.appendChild(el("span", "tt", (parts ? parts + (parts === 1 ? " change" : " changes") : (c.wordsAdded || 0) + " words added, " + (c.wordsRemoved || 0) + " removed") + (c.agent ? " in " + c.agent + "\u2019s draft" : "")));
+      [c.category].concat(Array.isArray(c.categories) ? c.categories.filter((k) => k !== c.category) : []).filter(Boolean).forEach((k) => hd.appendChild(el("span", "tag " + tagClass(k), k)));   // main kind first, then the others
+      hd.appendChild(el("span", "note", fmtSecs(Math.round((c.estimatedMinutes || 0) * 60)) + (/^measured/.test(c.timeSource || "") ? " (measured: the draft was open that long)" : " (estimated)") + (c.timestamp ? ", " + fmtDate(c.timestamp) : "")));
       em.push(hd);
-      if (c.originalSnippet || c.editedSnippet) {
+      // each change with its own kind; older records have one snippet for the whole email
+      const each = Array.isArray(c.edits) && c.edits.length ? c.edits : [{ category: c.category, before: c.originalSnippet || "", after: c.editedSnippet || "" }];
+      each.slice(0, 6).forEach((e) => {
         const r2 = el("div", "trow");
-        r2.appendChild(chgNode({ addr: "AI \u2192 sent", before: c.originalSnippet || "", after: c.editedSnippet || "" }));
+        if (e.category) r2.appendChild(el("span", "tag " + tagClass(e.category), catShort(e.category)));
+        r2.appendChild(chgNode({ addr: "", before: e.before, after: e.after }));
         em.push(r2);
-      }
+      });
+      if (each.length > 6) em.push(el("div", "note", "and " + (each.length - 6) + " more changes."));
     });
     if (mail.length > 5) em.push(el("div", "note", "and " + (mail.length - 5) + " more in the Fixes tab."));
     body.appendChild(step(n++, "Edits to the email before sending (" + mail.length + ")", em, !mail.length && !following));
@@ -1542,7 +1549,7 @@ function renderTrace() {
   t.fileRuns.forEach((f) => {
     const hd = el("div", "trow");
     hd.appendChild(el("span", "tt", f.changedCells === 0 ? "No changes: the AI's output was used as it is." : f.changedCells + (f.changedCells === 1 ? " change" : " changes") + (f.formulaEdits ? ", " + f.formulaEdits + " to formulas" : "") + " in " + (f.fileName || "the file")));
-    if (f.category) hd.appendChild(el("span", "tag " + (f.category === "Factual/Data Correction" ? "tag-factual" : f.category === "Terminology/Context Mismatch" ? "tag-term" : f.category === "Tone/Style Edit" ? "tag-tone" : "tag-content"), f.category));
+    if (f.category) hd.appendChild(el("span", "tag " + tagClass(f.category), f.category));
     (Array.isArray(f.categories) ? f.categories.filter((k) => k !== f.category) : []).forEach((k) => hd.appendChild(el("span", "tag " + tagClass(k), k)));
     hd.appendChild(el("span", "note", fmtMin(f.estimatedMinutes) + (f.minutesSource === "entered" ? " (you entered this)" : " (estimated)") + (f.elapsedSeconds ? ", saved " + fmtSecs(f.elapsedSeconds) + " after the AI's version" : "")));
     edits.push(hd);

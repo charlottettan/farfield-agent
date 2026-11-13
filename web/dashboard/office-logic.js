@@ -191,6 +191,8 @@
         timeSource: "measured+estimated",
         termsAdded: privacy === "full" ? analysis.termsAdded : [],
         termsRemoved: privacy === "full" ? analysis.termsRemoved : [],
+        // each change with its own kind; its wording is kept as the privacy mode allows
+        edits: (analysis.edits || []).map(function (e) { return { category: e.category, before: A.applyPrivacy(e.before, privacy), after: A.applyPrivacy(e.after, privacy) }; }),
         source: "live",
       };
       if (ctx.review) {
@@ -223,7 +225,7 @@
     }).length;
     if (formulaEdits > 0 && analysis.category !== A.CATEGORIES.FACTUAL) {
       analysis.category = A.CATEGORIES.FACTUAL;
-      analysis.estimatedMinutes = A.estimateMinutes(analysis.category, analysis.wordsAdded, analysis.wordsRemoved);
+      analysis.estimatedMinutes = A.estimateMinutes(analysis.category, analysis.wordsAdded, analysis.wordsRemoved, changes.length);
     }
 
     const snippets = { original: cellList(changes, "before"), edited: cellList(changes, "after") };

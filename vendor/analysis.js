@@ -21,11 +21,21 @@
 
   const DAY_MS = 24 * 60 * 60 * 1000;
 
-  const COST_MULTIPLIER = {};
-  COST_MULTIPLIER[CATEGORIES.FACTUAL] = 1.5;
-  COST_MULTIPLIER[CATEGORIES.CONTENT] = 1.2;
-  COST_MULTIPLIER[CATEGORIES.TERM] = 1.1;
-  COST_MULTIPLIER[CATEGORIES.TONE] = 0.8;
+  // Time model: each separate change costs a moment to decide on (finding the right figure takes longer than softening a word),
+  // plus typing the new words (about 40 words a minute) and deleting the old ones (a keystroke or two each). In seconds.
+  const DECIDE_SECONDS = {};
+  DECIDE_SECONDS[CATEGORIES.FACTUAL] = 40;
+  DECIDE_SECONDS[CATEGORIES.TERM] = 25;
+  DECIDE_SECONDS[CATEGORIES.CONTENT] = 15;
+  DECIDE_SECONDS[CATEGORIES.TONE] = 8;
+  const TYPE_SECONDS = 1.5, DELETE_SECONDS = 0.3;
+
+  // Words that set the tone rather than carry information: laughter, interjections, greetings and sign-offs, politeness,
+  // intensifiers and hedges. A change made only of these (or of emoji and punctuation) is a tone edit.
+  const TONE_WORD = /^(?:(?:ha|he|hah|heh)+h?|a?ha+h*|lol+|lmao|rofl|omg|wow|yay|oh+|ah+|hm+|um+|uh+|ooh|aw+|yeah|yep|hey|hi|hello|dear|thanks|thank|thx|cheers|best|regards|warmly|sincerely|please|pls|sorry|just|really|super|very|so|totally|truly|quite|pretty|actually|honestly|definitely|absolutely|literally|basically|maybe|perhaps|kindly|great|awesome|amazing|lovely|happy|glad|excited|hope|hoping)$/u;
+  const isToneWord = function (key) { return !key || TONE_WORD.test(key); };
+  // Days, months and relative dates are facts, like numbers ("next week" -> "next Thursday" is a factual change, not a name).
+  const DATE_WORD = /^(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?s?$|^(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)$|^(?:today|tonight|tomorrow|yesterday|week|weekend|month|quarter|year|morning|afternoon|evening|noon|midnight|am|pm|eod|eow)$/;
 
   // ---------------------------------------------------------------------------
   // Text helpers
@@ -37,37 +47,10 @@
       .trim();
   }
 
-  function tokenize(text) {
-    return normalizeText(text)
-      .toLowerCase()
-      .split(/\s+/)
-      .map(function (w) {
-        return w.replace(/^[^\p{L}\p{N}$]+|[^\p{L}\p{N}%]+$/gu, "");
-      })
-      .filter(Boolean);
-  }
-
   function extractNumbers(text) {
     return (String(text).match(/[$€£]?\d[\d,]*(?:\.\d+)?%?/g) || []).map(function (n) {
       return n.replace(/,/g, "");
     });
-  }
-
-  // Acronyms, mixed-case names and capitalized words that are not sentence starts.
-  function properTerms(text) {
-    const raw = normalizeText(text).split(/\s+/).filter(Boolean);
-    const terms = [];
-    raw.forEach(function (w, i) {
-      const clean = w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-      if (!clean || /^\d/.test(clean)) return;
-      const prev = i > 0 ? raw[i - 1] : "";
-      const sentenceStart = i === 0 || /[.!?]["')\]]?$/.test(prev);
-      const isAcronym = /^(?=.*[A-Z].*[A-Z])[A-Z0-9&]+$/.test(clean);
-      const isCapitalized = /^[A-Z][a-z]/.test(clean) && !sentenceStart;
-      const isMixed = /[a-z][A-Z]/.test(clean);
-      if (isAcronym || isCapitalized || isMixed) terms.push(clean);
-    });
-    return terms;
   }
 
   function countMap(list) {
@@ -138,60 +121,107 @@
     };
   }
 
-  function estimateMinutes(category, wordsAdded, wordsRemoved) {
-    const raw = (2 + (wordsAdded + wordsRemoved) * 0.3) * (COST_MULTIPLIER[category] || 1);
-    return Math.min(60, Math.max(1, Math.round(raw)));
+  // Minutes for an edit: `changes` separate changes of this kind, plus typing. Tenths of a minute, so a one-word tone tweak is not
+  // counted as minutes of work.
+  function estimateMinutes(category, wordsAdded, wordsRemoved, changes) {
+    const secs = Math.max(1, changes || 1) * (DECIDE_SECONDS[category] || 15) + wordsAdded * TYPE_SECONDS + wordsRemoved * DELETE_SECONDS;
+    return Math.min(60, Math.max(0.1, Math.round(secs / 6) / 10));
+  }
+
+  // Words with their place in the text. `start` marks the first word of a line or a sentence, so a capital there ("Hahha" on a
+  // line of its own) is not taken for a name.
+  function wordsOf(text) {
+    const out = [];
+    String(text || "").replace(/\u00a0/g, " ").split(/\r?\n/).forEach(function (line) {
+      line.split(/\s+/).filter(Boolean).forEach(function (raw, i, all) {
+        const key = raw.toLowerCase().replace(/^[^\p{L}\p{N}$]+|[^\p{L}\p{N}%]+$/gu, "");
+        out.push({ raw: raw, key: key, start: i === 0 || /[.!?:]["')\]]?$/.test(all[i - 1]) });
+      });
+    });
+    return out;
+  }
+  function isTerm(w) {
+    const c = w.raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    if (!c || /^\d/.test(c) || isToneWord(w.key) || DATE_WORD.test(w.key)) return false;
+    return /^(?=.*[A-Z].*[A-Z])[A-Z0-9&]+$/.test(c) || /[a-z][A-Z]/.test(c) || (/^[A-Z][a-z]/.test(c) && !w.start);
+  }
+  // terms (names, acronyms) in a text, for the record
+  function properTerms(text) {
+    return wordsOf(text).filter(isTerm).map(function (w) { return w.raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""); });
+  }
+
+  // The separate changes between two texts, word by word (longest common subsequence): [{ before: [words], after: [words] }].
+  function wordChanges(a, b) {
+    const n = a.length, m = b.length;
+    if (n * m > 4e6) return [{ before: a, after: b }];                      // very long texts: one change, not a slow diff
+    const L = [];
+    for (let i = n; i >= 0; i--) {
+      L[i] = new Uint16Array(m + 1);
+      for (let j = m - 1; i < n && j >= 0; j--) L[i][j] = a[i].key === b[j].key ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    }
+    const out = [];
+    let i = 0, j = 0, cur = null;
+    while (i < n || j < m) {
+      if (i < n && j < m && a[i].key === b[j].key) { cur = null; i++; j++; continue; }
+      if (!cur) out.push(cur = { before: [], after: [] });
+      if (j < m && (i >= n || L[i][j + 1] >= L[i + 1][j])) cur.after.push(b[j++]); else cur.before.push(a[i++]);
+    }
+    return out;
+  }
+
+  // What one change is:
+  //   a number, day or date changed                           -> Factual/Data
+  //   only tone words, emoji or punctuation changed           -> Tone/Style   ("hahha", "super" -> "really", "Hi" -> "Hey")
+  //   a name, acronym or product term changed, briefly         -> Terminology/Context
+  //   a sentence or more added or removed (8+ words, or 4+ added or removed outright) -> Content Addition/Removal
+  //   any other rewording                                     -> Tone/Style
+  function changeCategory(c) {
+    const all = c.before.concat(c.after), text = function (ws) { return ws.map(function (w) { return w.raw; }).join(" "); };
+    const facts = function (ws) { return extractNumbers(text(ws)).concat(ws.filter(function (w) { return DATE_WORD.test(w.key); }).map(function (w) { return w.key; })); };
+    const nb = facts(c.before), na = facts(c.after);
+    if (excessCount(na, nb) + excessCount(nb, na) > 0) return CATEGORIES.FACTUAL;
+    if (all.every(function (w) { return isToneWord(w.key); })) return CATEGORIES.TONE;
+    if (all.some(isTerm) && Math.max(c.before.length, c.after.length) <= 6) return CATEGORIES.TERM;
+    if (all.length >= 8 || ((!c.before.length || !c.after.length) && all.length >= 4)) return CATEGORIES.CONTENT;
+    return CATEGORIES.TONE;
   }
 
   // ---------------------------------------------------------------------------
-  // Classification + cost estimate (simple heuristics)
+  // Classification + cost estimate
   //
-  //  1. Numbers changed, overall length barely moved   -> Factual/Data
-  //  2. No numbers changed, proper terms/acronyms
-  //     added or removed, small length change          -> Terminology/Context
-  //  3. Length changed noticeably (>=12% or >=10 words)-> Content Add/Remove
-  //  4. Everything else                                -> Tone/Style
+  // The two texts are compared word by word and every separate change gets its own kind (see changeCategory), so one email
+  // with a softened greeting and a corrected date shows both. The edit as a whole takes the kind that changed the most words,
+  // except that any factual fix wins (a wrong figure matters most). Time is summed per change (see estimateMinutes).
   // ---------------------------------------------------------------------------
   function analyzeEdit(original, finalText) {
-    const oldWords = tokenize(original);
-    const newWords = tokenize(finalText);
-    const wordsAdded = excessCount(newWords, oldWords);
-    const wordsRemoved = excessCount(oldWords, newWords);
+    const a = wordsOf(original), b = wordsOf(finalText);
+    let changes = wordChanges(a, b);
+    // the text differs only in case, spacing or punctuation: one small tone change
+    if (!changes.length && normalizeText(original) !== normalizeText(finalText)) changes = [{ before: [], after: [] }];
+    const weight = {};
+    let secs = 0, wordsAdded = 0, wordsRemoved = 0;
+    const edits = changes.map(function (c) {
+      const category = changeCategory(c);
+      weight[category] = (weight[category] || 0) + Math.max(1, c.before.length + c.after.length);
+      secs += DECIDE_SECONDS[category] + c.after.length * TYPE_SECONDS + c.before.length * DELETE_SECONDS;
+      wordsAdded += c.after.length; wordsRemoved += c.before.length;
+      return { category: category, before: c.before.map(function (w) { return w.raw; }).join(" "), after: c.after.map(function (w) { return w.raw; }).join(" ") };
+    });
+    const order = [CATEGORIES.FACTUAL, CATEGORIES.TERM, CATEGORIES.CONTENT, CATEGORIES.TONE];
+    const category = weight[CATEGORIES.FACTUAL] ? CATEGORIES.FACTUAL
+      : order.reduce(function (best, k) { return (weight[k] || 0) > (weight[best] || 0) ? k : best; }, CATEGORIES.TONE);
 
-    const oldNums = extractNumbers(original);
-    const newNums = extractNumbers(finalText);
-    const numbersChanged = excessCount(newNums, oldNums) + excessCount(oldNums, newNums) > 0;
-
-    const oldTerms = properTerms(original);
-    const newTerms = properTerms(finalText);
-    const termsAdded = excessList(newTerms, oldTerms);
-    const termsRemoved = excessList(oldTerms, newTerms);
-    const termsChanged = termsAdded.length + termsRemoved.length > 0;
-
-    const lengthDiff = Math.abs(newWords.length - oldWords.length);
-    const ratio = lengthDiff / Math.max(oldWords.length, 1);
-
-    let category;
-    if (numbersChanged && ratio < 0.25 && lengthDiff < 15) {
-      category = CATEGORIES.FACTUAL;
-    } else if (!numbersChanged && termsChanged && lengthDiff <= 6) {
-      category = CATEGORIES.TERM;
-    } else if (ratio >= 0.12 || lengthDiff >= 10) {
-      category = CATEGORIES.CONTENT;
-    } else {
-      category = CATEGORIES.TONE;
-    }
-
-    const estimatedMinutes = estimateMinutes(category, wordsAdded, wordsRemoved);
+    const oldTerms = properTerms(original), newTerms = properTerms(finalText);
     const snippets = diffSnippets(normalizeText(original), normalizeText(finalText));
-
+    if (edits.length === 1 && !edits[0].before && !edits[0].after) { edits[0].before = snippets.original; edits[0].after = snippets.edited; }   // punctuation or capitals only
     return {
       category: category,
       wordsAdded: wordsAdded,
       wordsRemoved: wordsRemoved,
-      estimatedMinutes: estimatedMinutes,
-      termsAdded: termsAdded,
-      termsRemoved: termsRemoved,
+      estimatedMinutes: Math.min(60, Math.max(0.1, Math.round(secs / 6) / 10)),
+      edits: edits.slice(0, 20),          // each change with its own kind (the desktop app keeps every kind in "categories")
+      termsAdded: excessList(newTerms, oldTerms),
+      termsRemoved: excessList(oldTerms, newTerms),
       originalSnippet: snippets.original,
       editedSnippet: snippets.edited,
     };
@@ -417,6 +447,12 @@
       const ok = categoryValues().concat([EXTRA_FORMULA]);
       const cats = raw.categories.filter(function (k, i, all) { return ok.indexOf(k) !== -1 && all.indexOf(k) === i; }).slice(0, 6);
       if (cats.length) out.categories = cats;
+    }
+    // each change with its own kind, as recorded (wording already limited by the privacy mode)
+    if (Array.isArray(raw.edits)) {
+      const edits = raw.edits.filter(function (e) { return e && categoryValues().indexOf(e.category) !== -1; }).slice(0, 20)
+        .map(function (e) { return { category: e.category, before: clampStr(e.before, 400), after: clampStr(e.after, 400) }; });
+      if (edits.length) out.edits = edits;
     }
     if (typeof raw.modelMinutes === "number") out.modelMinutes = boundedNumber(raw.modelMinutes, 600);
     if (raw.totalCells !== undefined) {
@@ -1447,6 +1483,7 @@
     CATEGORIES: CATEGORIES,
     ROUTES: ROUTES,
     analyzeEdit: analyzeEdit,
+    isDateWord: function (w) { return DATE_WORD.test(String(w || "").toLowerCase()); },
     estimateMinutes: estimateMinutes,
     applyPrivacy: applyPrivacy,
     routeFor: routeFor,

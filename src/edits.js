@@ -82,7 +82,6 @@ export function minutesFor({ estimate, measuredSeconds, elapsedSeconds, idle = f
 export const maskEmails = (text) => String(text == null ? "" : text).replace(EMAIL, "[email]");
 
 // The "redacted" mode: email addresses and names are always hidden; numbers too unless keepNumbers.
-const NOT_NAMES = new Set("monday tuesday wednesday thursday friday saturday sunday january february march april may june july august september october november december jan feb mar apr jun jul aug sep sept oct nov dec".split(" "));
 export function redact(text, { keepNumbers = false } = {}) {
   const words = maskEmails(text).split(/(\s+)/);
   let start = true;
@@ -90,7 +89,7 @@ export function redact(text, { keepNumbers = false } = {}) {
     if (/^\s+$/.test(w) || w === "") return w;
     const core = w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
     let out = w;
-    if (!start && /^\p{Lu}/u.test(core) && core.length > 1 && !/^\p{Lu}+\d*$/u.test(core) && !NOT_NAMES.has(core.toLowerCase())) out = w.replace(core, "[name]");   // acronyms (Q3, EBITDA), weekdays and months are not names
+    if (!start && /^\p{Lu}/u.test(core) && core.length > 1 && !/^\p{Lu}+\d*$/u.test(core) && !A.isDateWord(core)) out = w.replace(core, "[name]");   // acronyms (Q3, EBITDA), weekdays and months are not names
     if (!keepNumbers) out = out.replace(/\d/g, "#");
     start = /[.!?]["')\]]?$/.test(w);
     return out;
