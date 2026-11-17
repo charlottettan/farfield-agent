@@ -14,6 +14,7 @@ import { extractTurns } from "./turns.js";
 import { classifyTurn, countsAsRework } from "./classify.js";
 import { taskKind, firstSentence } from "./task.js";
 
+import { readingSeconds, redact } from "../edits.js";
 const require = createRequire(import.meta.url);
 const A = require("../../vendor/analysis.js");
 
@@ -29,7 +30,8 @@ const MAX_CONVS = 30;
 // naming: what each task (a "workflow") is called. "task" (default): the kind of task it opened with ("Summary", "Email draft"), a label only,
 // so the same kind of task groups together across tools and people. "tool": "<Tool> chat". "first-prompt": the opening sentence, masked or not
 // following mode (and falling back to the task label when mode keeps no wording).
-export function createObserver({ now = Date.now, mode = "redacted", user = "You", salt = "", state = null, naming = "task" } = {}) {
+// keepNumbers: in "redacted" mode, keep numbers readable in follow-ups (names and email addresses are still hidden).
+export function createObserver({ now = Date.now, mode = "redacted", user = "You", salt = "", state = null, naming = "task", keepNumbers = false } = {}) {
   const h = (s) => crypto.createHash("sha256").update(salt + "|" + s).digest("hex");
   const convs = [];
 
@@ -167,12 +169,18 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
       c.prev.user = turn.text;
       if (!countsAsRework(cls)) return;                          // questions, additions, thanks and unsure messages are not rework
       ep.corrections++;
-      ep.reviewSeconds += Math.min(gap, 600);
+      // Review time: how long the reply was on screen before this follow-up. When the reply and the follow-up are first seen in the
+      // same look, that cannot be measured, so it is estimated from how long the reply takes to read, and marked as estimated.
+      const unmeasured = gap < 1 && !!c.prev.assistant;
+      const review = unmeasured ? readingSeconds(c.prev.assistant) : gap;
+      ep.reviewSeconds += Math.min(review, 600);
       const sessionId = "scr_" + h(c.id + ":" + ep.n).slice(0, 14);
       const rec = A.buildRePrompt({
         id: "scrp_" + h(sessionId + k).slice(0, 14), sessionId, site: tool.name, workflow: ep.workflow || unsorted(tool),
-        attemptIndex: ep.corrections + 1, kind: "followup", text: turn.text, mode, now: t, user, reviewSec: gap, source: "live",
+        attemptIndex: ep.corrections + 1, kind: "followup", text: turn.text, mode: mode === "redacted" && keepNumbers ? "full" : mode, now: t, user, reviewSec: review, source: "live",
       });
+      if (rec && mode === "redacted" && keepNumbers) { rec.text = redact(rec.text, { keepNumbers: true }); rec.instruction = redact(rec.instruction, { keepNumbers: true }); }
+      if (rec && unmeasured) rec.reviewSource = "estimated from the reply's length";
       if (rec) out.rePrompts.push(rec);
     });
 

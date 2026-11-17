@@ -14,6 +14,9 @@ function mergeById(existing, incoming) {
   return [...map.values()];
 }
 
+// Numbers in saved wording: masked unless the company chose to keep them (screen numbers keep). Names and emails stay hidden.
+export const keepNumbersOf = (cfg) => !!(cfg && cfg.screen && cfg.screen.maskNumbers === false);
+
 // Which email apps may be read: none unless email reading was turned on (screen email on --agree).
 export const emailAppsOf = (sc) => (sc && sc.email ? (Array.isArray(sc.emailApps) && sc.emailApps.length ? sc.emailApps : EMAIL_APP_IDS) : []);
 
@@ -32,7 +35,7 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
   }
 
   async function getTracker(mode) {
-    if (!tracker || trackerMode !== mode) { tracker = createEmailTracker({ now, mode, salt: await saltOf() }); trackerMode = mode; }
+    const key = mode + "|" + keepNumbersOf(getConfig()); if (!tracker || trackerMode !== key) { tracker = createEmailTracker({ now, mode, salt: await saltOf(), keepNumbers: keepNumbersOf(getConfig()) }); trackerMode = key; }
     return tracker;
   }
 
@@ -98,13 +101,13 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
       if (!tool) return { skipped: "not_allowed", app: cleanTitle(win && win.app).slice(0, 60), titleShape: titleShape(win && win.title) };            // the window's content is never requested
       let snapshot;
       try { snapshot = await probe.tree({ engine: sc.engine || "auto", build: false, maxNodes: 6000, timeoutMs: 30000, ...hintsFor(tool.id) }); } catch (e) { return { skipped: "probe_error", error: String((e && e.message) || e).slice(0, 200) }; }
-      if (!observer || observerMode !== mode + "|" + (sc.workflowNames || "task")) {
+      if (!observer || observerMode !== mode + "|" + (sc.workflowNames || "task") + "|" + keepNumbersOf(cfg)) {
         // What a chat looked like last time is remembered as salted fingerprints only (no text), so a restart does not lose track of it.
         const saved = await storage.local.get(["observerState"]);
         const salt = await saltOf();
         const naming = sc.workflowNames === "tool" || sc.workflowNames === "first-prompt" ? sc.workflowNames : "task";
-        observer = createObserver({ now, mode, salt, state: saved.observerState, naming });
-        observerMode = mode + "|" + (sc.workflowNames || "task");
+        observer = createObserver({ now, mode, salt, state: saved.observerState, naming, keepNumbers: keepNumbersOf(cfg) });
+        observerMode = mode + "|" + (sc.workflowNames || "task") + "|" + keepNumbersOf(cfg);
       }
       const res = observer.feed(snapshot, tool, { title: chatTitle(win, tool) });
       // the AI's replies are handed to the email matcher, which keeps them in memory only

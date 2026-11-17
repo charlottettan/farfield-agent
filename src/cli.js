@@ -29,6 +29,7 @@ const USAGE = `Farfield desktop agent
   farfield-agent screen off
   farfield-agent screen email on --agree   Also read the Gmail draft box, to see how AI text was changed before sending (needs screen on)
   farfield-agent screen email off
+  farfield-agent screen numbers keep|mask   Keep numbers readable in saved wording, or hide them (the default). Names and emails stay hidden
   farfield-agent screen dump --email [--delay 5] [--keep-text]   Read only an open Gmail draft box, to check email reading works (use a test draft)
   farfield-agent screen dump [--delay 5] [--any] [--max-nodes 800] [--timeout 60] [--engine native|slow] [--scope window] [--enable-accessibility] [--keep-text]   Save the structure of one chat window (text only with --keep-text; test chat only)
   farfield-agent screen naming <task|tool|first-prompt>   How workflows are named (default: by the kind of task)
@@ -96,6 +97,12 @@ export async function main(argv, env = process.env, deps = {}) {
       cfg.screen = { ...(cfg.screen || {}), enabled: true }; saveConfig(home, cfg); say("Chat reading is on."); return 0;
     }
     if (sub === "off") { cfg.screen = { ...(cfg.screen || {}), enabled: false }; saveConfig(home, cfg); say("Chat reading is off."); return 0; }
+    if (sub === "numbers") {
+      const what = pos[2];
+      if (what !== "keep" && what !== "mask") { say("Use: screen numbers keep | mask\n  mask  numbers in saved wording are hidden, e.g. Q3 -> Q#, 2:00 PM -> #:## PM (the default)\n  keep  numbers stay readable, so a wrong figure or time can be seen. Names and email addresses are still hidden.\nIt applies to follow-ups and email edits saved in redacted mode. Currently: " + (cfg.screen && cfg.screen.maskNumbers === false ? "keep" : "mask")); return what ? 1 : 0; }
+      cfg.screen = { ...(cfg.screen || {}), maskNumbers: what === "mask" }; saveConfig(home, cfg);
+      say(what === "keep" ? "Numbers will stay readable in saved wording. Names and email addresses are still hidden." : "Numbers will be hidden in saved wording."); return 0;
+    }
     if (sub === "email") {
       const what = pos[2];
       if (what === "off") { cfg.screen = { ...(cfg.screen || {}), email: false }; saveConfig(home, cfg); say("Email reading is off."); return 0; }

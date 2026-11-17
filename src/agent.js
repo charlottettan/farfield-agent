@@ -18,6 +18,7 @@ import { createFileStorage } from "./storage.js";
 import { loadConfig } from "./config.js";
 import { createProbe } from "./screen/probe.js";
 import { createScreenStep } from "./screen/watch.js";
+import { categoriesOf, minutesFor } from "./edits.js";
 
 const require = createRequire(import.meta.url);
 const A = require("../vendor/analysis.js");
@@ -86,6 +87,14 @@ export function createAgent({ home, fetch: fetchImpl = globalThis.fetch, now = D
       const priorCorr = corrs.find((c) => c.id === "f_" + bh);
       corr = { ...res.correction, id: "f_" + bh, source: "live" };
       if (priorCorr && priorCorr.t) corr.t = priorCorr.t;
+      // every kind of change in the file (each changed cell or paragraph labelled on its own), the biggest first
+      const kinds = categoriesOf(res.changes || []);
+      if (kinds.length) { corr.category = kinds[0]; corr.categories = kinds; run.category = kinds[0]; if (res.send) res.send.category = kinds[0]; }
+      // never more minutes than passed between the AI's version and this save
+      if (corr.timeSource !== "entered") {
+        const time = minutesFor({ estimate: corr.estimatedMinutes, elapsedSeconds: res.run.elapsedSeconds });
+        corr.modelMinutes = corr.estimatedMinutes; corr.estimatedMinutes = time.minutes; corr.timeSource = time.source; run.estimatedMinutes = time.minutes;
+      }
       run.corrId = corr.id;
     }
     let send = res.send ? { ...res.send } : null;
