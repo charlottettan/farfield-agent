@@ -76,6 +76,23 @@
     return out;
   }
 
+  // A formula's relative references moved by dRow rows and dCol columns, as Excel does when a formula is filled or copied.
+  // "$" parts stay put; text in quotes, sheet names in quotes and function names (LOG10( ) are left alone.
+  function colName0(n) { var s = ""; n += 1; while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
+  function moveFormula(formula, dRow, dCol) {
+    if (!dRow && !dCol) return formula;
+    return String(formula).split(/("(?:[^"]|"")*"|'(?:[^']|'')*')/).map(function (part, i) {
+      if (i % 2 === 1) return part;                                   // a quoted string or sheet name
+      return part.replace(/(^|[^A-Za-z0-9_.])(\$?)([A-Z]{1,3})(\$?)(\d+)(?![A-Za-z0-9_(])/g, function (all, pre, cAbs, letters, rAbs, digits) {
+        var c = colIndex(letters), r = Number(digits);
+        if (!cAbs) c += dCol;
+        if (!rAbs) r += dRow;
+        if (c < 0 || r < 1) return all;                               // moved off the sheet: leave it as it was
+        return pre + cAbs + colName0(c) + rAbs + r;
+      });
+    }).join("");
+  }
+
   function parseSheet(xml, strings) {
     var cells = {}, shared = {}, re = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g, m;
     while ((m = re.exec(xml))) {
@@ -85,8 +102,12 @@
       var f = /<f\b([^>]*?)(?:\/>|>([\s\S]*?)<\/f>)/.exec(inner), typed = "";
       if (f) {
         var ftext = f[2] !== undefined ? decodeXml(f[2]) : "", si = attr(f[1], "si");
-        if (ftext && si !== null) shared[si] = ftext;
-        if (!ftext && si !== null) ftext = shared[si] || "";
+        var row = Number(rc[2]), col = colIndex(rc[1]);
+        // Excel stores a filled-down formula once ("shared"), on its first cell; the others say "same formula, moved". Each one is
+        // the first formula with its relative references moved by the distance between the two cells. (Copying it unmoved made
+        // every filled-down cell look edited in a live test: 14 false changes in one save.)
+        if (ftext && si !== null) shared[si] = { text: ftext, row: row, col: col };
+        if (!ftext && si !== null) ftext = shared[si] ? moveFormula(shared[si].text, row - shared[si].row, col - shared[si].col) : "";
         typed = "=" + ftext;
       } else if (t === "inlineStr") typed = textRuns(inner);
       else {
@@ -220,7 +241,7 @@
     return { run: run, correction: correction, send: built.send, changes: changes, totals: { total: total, changed: changed, formulaEdits: formulaEdits } };
   }
 
-  var api = { readOfficeFile: readOfficeFile, readXlsx: readXlsx, readDocx: readDocx, readPptx: readPptx, compareFiles: compareFiles, unzipEntries: unzipEntries, MAX_CHANGES_SAVED: MAX_CHANGES_SAVED };
+  var api = { moveFormula: moveFormula, parseSheet: parseSheet, readOfficeFile: readOfficeFile, readXlsx: readXlsx, readDocx: readDocx, readPptx: readPptx, compareFiles: compareFiles, unzipEntries: unzipEntries, MAX_CHANGES_SAVED: MAX_CHANGES_SAVED };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.FarfieldFiles = api;
 })(typeof self !== "undefined" ? self : globalThis);

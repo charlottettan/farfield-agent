@@ -75,3 +75,27 @@ test("a file with no AI chat recently on screen keeps the generic name", async (
   assert.equal((await s.corrs())[0].agent, defaults().agentName);
   assert.equal(run.workflow, "budget");
 });
+
+import { createRequire } from "node:module";
+const Files = createRequire(import.meta.url)("../vendor/office-files.js");
+
+test("shared formulas: a filled-down formula is moved for each cell, so an Excel save is not a pile of false edits", () => {
+  // what Excel writes when it saves a filled-down column (seen in a live comps test: 14 false changes before this fix)
+  const xml = '<sheetData>' + [6, 7, 8, 20].map((r) => r === 6
+    ? '<row r="6"><c r="H6"><f t="shared" ref="H6:H20" si="0">SUM(C6:F6)-G6</f><v>1</v></c></row>'
+    : `<row r="${r}"><c r="H${r}"><f t="shared" si="0"/><v>1</v></c></row>`).join("") + '</sheetData>';
+  const cells = Files.parseSheet(xml, []);
+  assert.equal(cells["7,5"], "=SUM(C6:F6)-G6");
+  assert.equal(cells["7,6"], "=SUM(C7:F7)-G7");
+  assert.equal(cells["7,7"], "=SUM(C8:F8)-G8");
+  assert.equal(cells["7,19"], "=SUM(C20:F20)-G20");
+});
+
+test("moving a formula: $ parts stay, quoted text and sheet names and function names are left alone", () => {
+  assert.equal(Files.moveFormula("$A$1+B2", 2, 1), "$A$1+C4");
+  assert.equal(Files.moveFormula("$A1+A$1", 1, 1), "$A2+B$1");
+  assert.equal(Files.moveFormula("'LTM Build'!E29*2", 1, 0), "'LTM Build'!E30*2");
+  assert.equal(Files.moveFormula('IF(A1="B2",LOG10(C3),0)', 1, 0), 'IF(A2="B2",LOG10(C4),0)');
+  assert.equal(Files.moveFormula("AVERAGE(K5:K9)", 0, 0), "AVERAGE(K5:K9)");
+  assert.equal(Files.moveFormula("A1", -5, 0), "A1");                    // would move off the sheet: unchanged
+});
