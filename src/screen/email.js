@@ -115,6 +115,7 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
     if (built.correction && privacy === "redacted" && keepNumbers) {          // numbers kept, email addresses still hidden
       built.correction.originalSnippet = maskEmails(built.correction.originalSnippet);
       built.correction.editedSnippet = maskEmails(built.correction.editedSnippet);
+      built.correction.edits = (built.correction.edits || []).map((e) => ({ ...e, before: maskEmails(e.before), after: maskEmails(e.after) }));
     }
     // every kind of change in this email, the biggest first (a fact fixed and the tone softened are both kept)
     const kinds = built.correction ? categoriesOf(changedPairs(d.ai, d.last)) : [];

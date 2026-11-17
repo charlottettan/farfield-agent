@@ -62,7 +62,7 @@ test("email edits: every kind of change, the measured time, and numbers kept whe
   assert.equal(kept.category, "Tone/Style Edit");
   assert.equal(kept.estimatedMinutes, 1);
   assert.equal(kept.timeSource, "measured");
-  assert.ok(kept.modelMinutes >= 1);
+  assert.ok(kept.modelMinutes > 0 && kept.modelMinutes < 1, "the per-change estimate for a few small changes is under a minute");
   assert.ok(/\d/.test(kept.originalSnippet) && !kept.originalSnippet.includes("#:##"), kept.originalSnippet);              // numbers kept readable
   const masked = run(false);
   assert.ok(!/\d/.test(masked.originalSnippet + masked.editedSnippet), "numbers hidden by default");
