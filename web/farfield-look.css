@@ -1,8 +1,6 @@
 /* Farfield look for the desktop app, matching withfarfield.com.
  *
- * Loaded after the dashboard's own styles (the server adds it to dashboard.html), and by the panel. It lives outside
- * web/dashboard so that refreshing the dashboard from the extension (scripts/sync-from-extension.sh) does not undo it.
- * To give the extension the same look, copy this file there and link it after the dashboard's <style>.
+ * Loaded after the dashboard's own styles (the server adds it to dashboard.html), and by the panel.
  *
  * Choices (agreed with Belle): soft grey-white pages with white cards and a near-black top bar; Newsreader for page
  * titles, Inter for everything else including figures; a deeper periwinkle accent used sparingly; near-black filled

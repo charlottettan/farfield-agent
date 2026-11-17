@@ -168,8 +168,7 @@ export function createAppServer({ agent, home, token, getLoop = () => ({ running
       if (key === "/dashboard.html") {
         // the shim has to run before any dashboard script so that chrome.storage etc. exist
         data = Buffer.from(data.toString("utf8").replace(/<head[^>]*>/i, (m) => m + '<script src="/shim.js"></script>')
-          // no moving grey grid ("overview ripple") behind the top of the Overview in the desktop app. Removed here rather than
-          // in the copied file, so a refresh from the extension (scripts/sync-from-extension.sh) does not bring it back.
+          // no moving grey grid ("overview ripple") behind the top of the Overview in the desktop app
           .replace(/\s*<canvas id="rippleBg"[^>]*><\/canvas>/i, "")
           .replace(/\s*<script src="overview-ripple\.js"><\/script>/i, "")
           // the desktop app's own look (withfarfield.com), layered after the dashboard's styles

@@ -4,7 +4,7 @@ Watches the folders you choose for new Excel, Word and PowerPoint files. When a 
 copy as the "AI version". When the file is later saved with changes, it records what changed. If you have joined a
 company, the changes are sent to that company's Farfield server, with the company's privacy mode applied first.
 
-It reuses the browser extension's own file-comparison and sync code (`vendor/`), so both behave the same way.
+The file-comparison, analysis and sync code in `vendor/` and the dashboard in `web/dashboard` started as copies of the Chrome extension. The extension was retired in Nov 2026, so this app owns that code now: edit it here.
 
 ## What it reads, and what it doesn't
 - Reads: `.xlsx`, `.xlsm`, `.docx`, `.pptx` files in the folders you add, and only files that appeared **after** the agent started.
@@ -13,7 +13,7 @@ It reuses the browser extension's own file-comparison and sync code (`vendor/`),
 
 ## The Farfield app (a local page, no Chrome extension)
 
-**Look.** The desktop app has its own look matching withfarfield.com, kept in `web/farfield-look.css` and `web/farfield-look.js` (the server adds both to the dashboard; the panel links the stylesheet). They sit outside `web/dashboard`, so refreshing the dashboard from the extension does not undo them; to give the extension the same look, copy both files there. The script only rearranges what is shown (one-line headlines, units, up/down arrows, the Light/Dark switch moved to Data and settings) and never changes a number. The moving grey grid behind the Overview is left out. Fonts: Inter and Newsreader are bundled in `web/look-fonts` (SIL Open Font License, see LICENSES.txt there), outside `web/dashboard` so the extension refresh does not delete them.
+**Look.** The desktop app has its own look matching withfarfield.com, kept in `web/farfield-look.css` and `web/farfield-look.js` (the server adds both to the dashboard; the panel links the stylesheet). The script only rearranges what is shown (one-line headlines, units, up/down arrows, the Light/Dark switch moved to Data and settings) and never changes a number. The moving grey grid behind the Overview is left out. Fonts: Inter and Newsreader are bundled in `web/look-fonts` (SIL Open Font License, see LICENSES.txt there).
 `node src/cli.js app` starts watching and opens a page in your normal browser (Safari, Edge, Chrome, Firefox):
 - **Panel** (`/panel.html`): a "Farfield is running / paused" indicator, a Pause button, the folders it reads (add or remove), what it has found (file names and counts only), join or leave a company, and a plain-language "what is collected" statement.
 - **Dashboard** (`/dashboard.html`): the same Overview, Workflows, Fixes and Implementation views as the extension, running as a web page. A small status pill (Pause, link to the panel) stays visible on every page. A new file correction appears in the open page within a few seconds. The first run adds the sample company so the dashboard is not empty; real corrections sit next to it and are never sent to a company.
@@ -26,7 +26,7 @@ How the local page is protected (it only listens on 127.0.0.1, but any website y
 - The proxy to the company server only reaches the address of the company you joined.
 - Tested in real Chromium, including a page on another local port attacking it. Not yet tested in Safari or Edge.
 
-The dashboard files are copies of the extension's. `scripts/sync-from-extension.sh <extension folder>` refreshes them. The sample data comes from the extension's own `background.js`, run in a sandbox, so there is no second copy to drift.
+`vendor/` and `web/dashboard` keep identical copies of `analysis.js`, `office-files.js`, `office-logic.js` and `sync.js` (the server's code and the page's code): change both together. The sample data comes from `vendor/background.js` (from the retired extension), run in a sandbox.
 
 ## Reading AI chat windows (re-prompts without the extension) — prototype
 Off by default. `node src/cli.js screen on --agree` turns it on. While it is on, every few seconds Farfield asks the operating system **only** for the front window's app and title. If that is an allowed AI chat (ChatGPT, Claude, Gemini, Copilot), it then reads that window's text. Any other window is never read (tested). It does not take screenshots, record keystrokes, or keep unsent text or window titles.
@@ -68,9 +68,9 @@ What it produces: the same records as the browser extension. Each task in a chat
 - Numbers: `screen numbers keep` keeps numbers readable in saved wording ("2:00 PM" instead of "#:## PM"); names and email addresses stay hidden. Default: `mask`. A company should decide this deliberately.
 - Names: in redacted mode, weekdays and months ("Tuesday", "March") and acronyms ("Q3") are no longer hidden as names.
 - Re-prompt review time: when a reply and the follow-up are first seen in the same look, the review time is estimated from the reply's length (about 240 words a minute) and marked `reviewSource: "estimated from the reply's length"`, instead of 0.
-- Formula fixes (from the first live comps test): a changed spreadsheet formula gets the extra label "Formula error". The main label stays one of the four (Factual/Data Correction for a formula-only fix), because the record checks before backup and sync (vendor/analysis.js, shared with the extension) accept only those four and keep only known fields: extra labels (`categories`) stay on this computer until the extension and backend accept them too.
+- Formula fixes (from the first live comps test): a changed spreadsheet formula gets the extra label "Formula error". The main label stays one of the four (Factual/Data Correction for a formula-only fix), because the record checks (`sanitizeCorrection` in vendor/analysis.js, used when restoring a backup and when the dashboard reads records) accept only those four as the main label. They keep the extra labels (`categories`, including "Formula error"). Company sync sends whole records; whether the company server keeps `categories` depends on the backend.
 - File credit: an Office file that arrives within 15 minutes after an AI chat with a reply was on screen (or 2 minutes before it) is credited to that AI tool and filed under that chat's task, like Gmail edits. Only the tool and task name are used, in memory. A file with no recent AI chat keeps the generic "AI-generated file".
-- Shared formulas (from the second live comps test): Excel stores a filled-down column of formulas once and marks the other cells "same formula, moved". The reader copied the first formula to every cell without moving it, so an ordinary Excel save looked like 14 formula edits. `vendor/office-files.js` (and its copy in `web/dashboard`) now moves each one (`moveFormula`). **The Chrome extension has the same bug: copy this file there.**
+- Shared formulas (from the second live comps test): Excel stores a filled-down column of formulas once and marks the other cells "same formula, moved". The reader copied the first formula to every cell without moving it, so an ordinary Excel save looked like 14 formula edits. `vendor/office-files.js` (and its copy in `web/dashboard`) now moves each one (`moveFormula`).
 Records saved before this change keep their old values.
 
 ## Keeping a chat together (restarts, long chats, scrolling)

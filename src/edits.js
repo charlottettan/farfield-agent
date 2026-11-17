@@ -1,5 +1,4 @@
-// Small helpers that make the desktop app's records more honest. Kept out of vendor/ (the extension's shared code) so a refresh
-// from the extension does not undo them.
+// Small helpers that make the desktop app's records more honest.
 //
 //  - categoriesOf: one edit can be several kinds of change (a fact fixed AND the tone softened). Each changed sentence (or cell)
 //    is labelled on its own; the label with the most words changed is the main one, and all of them are kept.
@@ -34,9 +33,9 @@ export function changedPairs(before, after) {
 }
 
 // A changed spreadsheet formula ("=AVERAGE(J5:J9)" -> "=AVERAGE(J5:J8)") is its own kind of change: the AI's formulas being wrong
-// is a different, more serious problem than one number being off. It is kept as an extra label only, because the code that checks
-// records before backup and sync (vendor/analysis.js, shared with the extension) accepts just the four main labels; the main label of
-// a formula-only fix is "Factual/Data Correction", which routes it to engineering.
+// is a different, more serious problem than one number being off. It is an extra label only (in "categories"): the record checks in
+// vendor/analysis.js accept just the four main labels as a record's main one; the main label of a formula-only fix is
+// "Factual/Data Correction", which routes it to engineering.
 export const FORMULA = "Formula error";
 const isFormula = (v) => /^=/.test(String(v || "").trim());
 

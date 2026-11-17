@@ -99,3 +99,15 @@ test("moving a formula: $ parts stay, quoted text and sheet names and function n
   assert.equal(Files.moveFormula("AVERAGE(K5:K9)", 0, 0), "AVERAGE(K5:K9)");
   assert.equal(Files.moveFormula("A1", -5, 0), "A1");                    // would move off the sheet: unchanged
 });
+
+const An = createRequire(import.meta.url)("../vendor/analysis.js");
+test("backups and records read back keep every kind of change, and drop made-up labels", () => {
+  const r = An.sanitizeCorrection({ id: "f_1", timestamp: Date.now(), category: "Factual/Data Correction", categories: ["Formula error", "Factual/Data Correction", "Made up", "Formula error"], timeSource: "estimated, capped by the time between the AI's version and the save", modelMinutes: 5 });
+  assert.deepEqual(r.categories, ["Formula error", "Factual/Data Correction"]);
+  assert.equal(r.timeSource, "estimated, capped by the time between the AI's version and the save");
+  assert.equal(r.modelMinutes, 5);
+  assert.equal(An.sanitizeCorrection({ id: "f_2", timestamp: Date.now(), category: "Formula error" }), null);   // never a main label
+  const src = fs.readFileSync(new URL("../vendor/analysis.js", import.meta.url), "utf8");
+  assert.equal(src, fs.readFileSync(new URL("../web/dashboard/analysis.js", import.meta.url), "utf8"), "the server's and the page's copies match");
+  assert.equal(fs.readFileSync(new URL("../vendor/office-files.js", import.meta.url), "utf8"), fs.readFileSync(new URL("../web/dashboard/office-files.js", import.meta.url), "utf8"));
+});

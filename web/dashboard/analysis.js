@@ -371,6 +371,7 @@
     return typeof v === "string" ? v.slice(0, n) : "";
   }
 
+  const EXTRA_FORMULA = "Formula error";   // kept in a record's "categories" list only, never as its main category
   function categoryValues() {
     return Object.keys(CATEGORIES).map(function (k) { return CATEGORIES[k]; });
   }
@@ -404,13 +405,20 @@
       wordsRemoved: Math.round(boundedNumber(raw.wordsRemoved, 100000)),
       estimatedMinutes: boundedNumber(raw.estimatedMinutes, 600),
       activeSeconds: Math.round(boundedNumber(raw.activeSeconds, 86400)),
-      timeSource: clampStr(raw.timeSource, 30),
+      timeSource: clampStr(raw.timeSource, 80),
       termsAdded: cleanList(raw.termsAdded),
       termsRemoved: cleanList(raw.termsRemoved),
       source: raw.source === "seed" ? "seed" : "live",
     };
     if (typeof raw.workflow === "string" && raw.workflow) out.workflow = clampStr(raw.workflow, 120);
     if (typeof raw.file === "string" && raw.file) out.file = clampStr(raw.file, 160);
+    // every kind of change in the edit (the main one is "category"); "Formula error" is an extra-only label for spreadsheet formulas
+    if (Array.isArray(raw.categories)) {
+      const ok = categoryValues().concat([EXTRA_FORMULA]);
+      const cats = raw.categories.filter(function (k, i, all) { return ok.indexOf(k) !== -1 && all.indexOf(k) === i; }).slice(0, 6);
+      if (cats.length) out.categories = cats;
+    }
+    if (typeof raw.modelMinutes === "number") out.modelMinutes = boundedNumber(raw.modelMinutes, 600);
     if (raw.totalCells !== undefined) {
       out.flaggedCount = Math.round(boundedNumber(raw.flaggedCount, 1000000));
       out.reviewedCells = Math.round(boundedNumber(raw.reviewedCells, 10000000));

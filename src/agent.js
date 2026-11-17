@@ -2,8 +2,8 @@
 //
 // What it does: looks at a few folders you choose. When a new Excel, Word or PowerPoint file appears there, it keeps a
 // private copy as the "AI version". When that file is later saved with changes, it works out what changed (using the
-// same comparison code as the browser extension) and stores the list of changes. If you have joined a company, the
-// extension's own sync code sends those records, with the company's privacy mode applied first.
+// comparison code in vendor/office-files.js) and stores the list of changes. If you have joined a company, the sync code in
+// vendor/sync.js sends those records, with the company's privacy mode applied first.
 //
 // What it does NOT do: read the screen, log keystrokes, take screenshots, or open any file outside the folders you chose.
 // Files that were already in a folder when the agent first ran are ignored.
