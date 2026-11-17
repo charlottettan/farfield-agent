@@ -200,7 +200,10 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
     if (c.replyWf.size > MAX_KEYS) c.replyWf = new Map([...c.replyWf].slice(-MAX_KEYS));
 
     const last = c.episodes.length ? c.episodes[c.episodes.length - 1].n : -1;
-    for (const ep of c.episodes) if (ep.corrections > 0 || ep.n === last) out.sessions.push(sessionRecord(c, ep, t));
+    // A session is a prompt and the AI's answer. Until the AI has replied there is nothing to record: in a live test, the look taken
+    // just after a new ChatGPT chat's first message (no reply yet, no chat address yet) was saved as an empty one-attempt session,
+    // which would read as "right the first time".
+    if (c.assistantSeenAt) for (const ep of c.episodes) if (ep.corrections > 0 || ep.n === last) out.sessions.push(sessionRecord(c, ep, t));
     return out;
   }
 

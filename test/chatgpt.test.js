@@ -152,3 +152,14 @@ test("chat ids: read from ChatGPT addresses only", () => {
   assert.equal(chatIdOf("/"), "");
   assert.equal(chatIdOf(undefined), "");
 });
+
+test("sessions: nothing is recorded until the AI has replied (a just-sent first message is not a session)", () => {
+  let t = 2_000_000;
+  const obs = createObserver({ now: () => t, mode: "redacted", salt: "s".repeat(16) });
+  const GPT = { id: "chatgpt", name: "ChatGPT" };
+  const r1 = obs.feed({ nodes: PAGE(user("Write an email to Tim confirming our budget meeting Tuesday at 2pm. Sign it Sam.")) }, GPT, { title: "ChatGPT", chatId: "" });
+  assert.equal(r1.sessions.length, 0, "no reply yet: no session");
+  t += 10_000;
+  const r2 = obs.feed({ nodes: PAGE(user("Write an email to Tim confirming our budget meeting Tuesday at 2pm. Sign it Sam."), plainReply("Hi Tim, see you Tuesday at 2pm. Best, Sam")) }, GPT, { title: "Email to Tim", chatId: "9c9c0000-dddd" });
+  assert.equal(r2.sessions.length, 1);
+});
