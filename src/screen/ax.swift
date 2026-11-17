@@ -135,6 +135,21 @@ var start = win
 var scope = "window"
 if !scopeWholeWindow, let web = findWebArea(win) { start = web; scope = "web" }
 
+// --site-only: report just the website of the page in front (for example "https://chatgpt.com"), and nothing on the page.
+// Used to recognise an AI chat whose tab title does not name the tool (ChatGPT titles are only the chat's name).
+if args.contains("--site-only") {
+    var site = ""
+    if let web = findWebArea(win), let u = attr(web, "AXURL") {
+        var link: URL? = nil
+        if CFGetTypeID(u) == CFURLGetTypeID() { link = (u as! CFURL) as URL } else { link = URL(string: str(u)) }
+        if let l = link, let host = l.host { var c = URLComponents(); c.scheme = l.scheme ?? "https"; c.host = host; site = c.string ?? "" }
+    }
+    struct SiteOut: Encodable { var url: String; var app: String; var engine: String }
+    guard let data = try? JSONEncoder().encode(SiteOut(url: site, app: appName, engine: "native")), let json = String(data: data, encoding: .utf8) else { fail("Could not write the result.") }
+    print(json)
+    exit(0)
+}
+
 // A long conversation can hold tens of thousands of items, and only the latest messages matter. When asked, jump straight to the
 // labelled message list and read just the end of it.
 func findByLabel(_ root: AXUIElement, _ label: String) -> AXUIElement? {

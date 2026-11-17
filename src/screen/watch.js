@@ -1,7 +1,7 @@
 // One look at the screen: ask which window is in front, and only if it is an allowed AI chat (or, when email reading is on,
 // an allowed email app), read its text.
 import crypto from "node:crypto";
-import { identify, identifyEmail, chatTitle, EMAIL_APP_IDS } from "./sites.js";
+import { identify, identifyEmail, chatTitle, EMAIL_APP_IDS, isBrowser } from "./sites.js";
 import { createObserver } from "./observer.js";
 import { createEmailTracker } from "./email.js";
 import { gmailDraft } from "./adapters/gmail.js";
@@ -87,7 +87,12 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
 
       let win;
       try { win = await probe.title(); } catch (e) { return { skipped: "probe_error", error: String((e && e.message) || e).slice(0, 200) }; }
-      const tool = identify(win, sc.tools);
+      let tool = identify(win, sc.tools);
+      // A browser tab whose title does not name the tool (ChatGPT shows only the chat's name): look at the tab's website only
+      // (never its content) and recognise the tool from that. Gmail is recognised from its title, so it is left to the email check.
+      if (!tool && isBrowser(win && win.app) && probe.site && !identifyEmail(win, emailApps)) {
+        try { const s = await probe.site(); if (s && s.url) tool = identify({ url: s.url }, sc.tools); } catch { /* not built yet, or no page: treat as not allowed */ }
+      }
       const emailApp = tool ? null : identifyEmail(win, emailApps);
       if (emailApp) return await emailStep(emailApp, mode);
       if (!tool) return { skipped: "not_allowed", app: cleanTitle(win && win.app).slice(0, 60), titleShape: titleShape(win && win.title) };            // the window's content is never requested

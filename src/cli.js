@@ -7,7 +7,7 @@ import { createAgent } from "./agent.js";
 import fs from "node:fs";
 import { startApp } from "./app.js";
 import { createProbe, ensureNative } from "./screen/probe.js";
-import { identify, identifyEmail, showTitle, EMAIL_APP_IDS } from "./screen/sites.js";
+import { identify, identifyEmail, showTitle, EMAIL_APP_IDS, isBrowser } from "./screen/sites.js";
 import { gmailDraft } from "./screen/adapters/gmail.js";
 import { extractTurns } from "./screen/turns.js";
 import { hintsFor } from "./screen/adapters/index.js";
@@ -136,7 +136,8 @@ export async function main(argv, env = process.env, deps = {}) {
         say(keep ? "Saved to " + file + " WITH the draft's text. Use a test draft, and delete it when done (screen forget)." : "Saved to " + file + ". Only the structure was saved, safe to share after you look through it.");
         return 0;
       }
-      const tool = identify(win, cfg.screen && cfg.screen.tools);
+      let tool = identify(win, cfg.screen && cfg.screen.tools);
+      if (!tool && isBrowser(win && win.app) && probe.site) { try { const s = await probe.site(); if (s && s.url) tool = identify({ url: s.url }, cfg.screen && cfg.screen.tools); } catch { /* reader not built */ } }
       say(`Front window: app "${win.app}", title "${win.title}". Recognised as: ${tool ? tool.name + " (by " + tool.basis + ")" : "not an allowed AI chat"}.`);
       if (!tool) say(`Title as Farfield sees it (hidden characters spelled out): "${showTitle(win.title)}"`);
       if (!tool && !flags.any) { say("Not reading it. Switch to an AI chat window (use --delay 5 to get time), or add --any to read this window anyway."); return 1; }

@@ -60,6 +60,7 @@ export function showTitle(t) {
 }
 
 const BROWSERS = /chrome|edge|safari|firefox|brave|arc|opera|chromium/i;
+export const isBrowser = (app) => BROWSERS.test(cleanTitle(app));
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Email apps whose draft box Farfield may read, to see how a person changed AI text before sending it. Off unless turned on

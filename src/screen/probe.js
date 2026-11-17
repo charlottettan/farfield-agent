@@ -294,6 +294,8 @@ export function createProbe(platform = process.platform, runner = run, sleep = s
     };
     return {
       title: () => runner("osascript", ["-l", "JavaScript", "-e", MAC_TITLE], 8000),
+      // the website of the page in front (scheme and host only, never the page or its path), from the native reader
+      site: async () => runner(await ensureNative({ binDir, compile: extra.compile, fsApi: extra.fsApi, build: false }), ["--site-only"], 8000),
       check: () => runner("osascript", ["-l", "JavaScript", "-e", MAC_CHECK], 15000),
       async tree(o = {}) {
         const engine = o.engine || "auto";
