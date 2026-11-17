@@ -40,7 +40,7 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
     for (const s of saved.convs) {
       if (!s || typeof s.id !== "string" || typeof s.tool !== "string" || !Array.isArray(s.keys)) continue;
       convs.push({
-        id: s.id, tool: { id: s.tool, name: String(s.name || s.tool) }, titleHash: String(s.titleHash || ""),
+        id: s.id, tool: { id: s.tool, name: String(s.name || s.tool) }, titleHash: String(s.titleHash || ""), chatHash: String(s.chatHash || ""),
         keys: new Set(s.keys.filter((k) => typeof k === "string")), userCount: Number(s.userCount) || 0,
         episodes: (Array.isArray(s.episodes) ? s.episodes : []).map((e) => ({ n: Number(e.n) || 0, startedAt: Number(e.startedAt) || 0, corrections: Number(e.corrections) || 0, reviewSeconds: Number(e.reviewSeconds) || 0, workflow: typeof e.workflow === "string" ? e.workflow.slice(0, 120) : "", kind: typeof e.kind === "string" ? e.kind.slice(0, 40) : "" })),
         lastAt: Number(s.lastAt) || 0, assistantSeenAt: Number(s.assistantSeenAt) || 0, prev: { user: "", assistant: "", task: "" },
@@ -57,7 +57,7 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
     return {
       v: 1,
       convs: live.map((c) => ({
-        id: c.id, tool: c.tool.id, name: c.tool.name, titleHash: c.titleHash, keys: [...c.keys].slice(-MAX_KEYS),
+        id: c.id, tool: c.tool.id, name: c.tool.name, titleHash: c.titleHash, chatHash: c.chatHash || "", keys: [...c.keys].slice(-MAX_KEYS),
         userCount: c.userCount, episodes: c.episodes.map((e) => ({ ...e })), lastAt: c.lastAt, assistantSeenAt: c.assistantSeenAt,
       })),
     };
@@ -69,11 +69,21 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
   }
 
   // Messages seen before count most. A matching title fingerprint is a tie-breaker, and the fallback when the early messages have scrolled away.
-  function find(tool, keys, titleHash, t) {
+  // chatHash (a fingerprint of the chat's own id from its address, when the page gives one) decides on its own: a chat with a
+  // different id is never this one, however alike the messages or title are. Seen in a live test: two ChatGPT chats with the same
+  // auto-title were merged, and the new chat's first prompt was counted as a re-prompt of the old one.
+  function find(tool, keys, titleHash, t, chatHash = "") {
     let best = null, bestScore = 0;
     for (const c of convs) {
       if (c.tool.id !== tool.id) continue;
       const age = t - c.lastAt;
+      if (chatHash) {
+        if (c.chatHash === chatHash && age <= WEEK) return c;
+        if (c.chatHash) continue;                                  // another chat
+        const overlap = age <= WEEK ? keys.filter((k) => c.keys.has(k)).length : 0;
+        if (overlap * 10 > bestScore) { best = c; bestScore = overlap * 10; }   // remembered before ids were kept: messages only, never the title
+        continue;
+      }
       const overlap = age <= WEEK ? keys.filter((k) => c.keys.has(k)).length : 0;
       const titleMatch = !!titleHash && c.titleHash === titleHash && age <= DAY;
       const score = overlap * 10 + (titleMatch ? 5 : 0);
@@ -119,15 +129,17 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
     if (!turns.length) return out;
     const keys = keysOf(turns);
     const titleHash = meta && meta.title ? h("title|" + tool.id + "|" + norm(meta.title)).slice(0, 16) : "";
+    const chatHash = meta && meta.chatId ? h("chat|" + tool.id + "|" + meta.chatId).slice(0, 16) : "";
 
-    let c = find(tool, keys, titleHash, t);
+    let c = find(tool, keys, titleHash, t, chatHash);
     const fresh = !c;
     if (fresh) {
-      c = { id: "c_" + h(tool.id + "|" + titleHash + "|" + keys[0]).slice(0, 12), tool, titleHash, keys: new Set(), userCount: 0, lastAt: t, episodes: [], prev: { user: "", assistant: "", task: "" }, assistantSeenAt: 0 };
+      c = { id: "c_" + h(tool.id + "|" + (chatHash || titleHash) + "|" + keys[0]).slice(0, 12), tool, titleHash, chatHash, keys: new Set(), userCount: 0, lastAt: t, episodes: [], prev: { user: "", assistant: "", task: "" }, assistantSeenAt: 0 };
       convs.push(c);
       out.changed = true;
     }
     if (titleHash && c.titleHash !== titleHash) { c.titleHash = titleHash; out.changed = true; }
+    if (chatHash && c.chatHash !== chatHash) { c.chatHash = chatHash; out.changed = true; }
     // a chat always begins with the person's message, so an assistant reply at the very top of what is on screen means it began earlier
     const beganEarlier = fresh && turns[0].role === "assistant";
     c.lastAt = t;
@@ -177,9 +189,9 @@ export function createObserver({ now = Date.now, mode = "redacted", user = "You"
       const sessionId = "scr_" + h(c.id + ":" + ep.n).slice(0, 14);
       const rec = A.buildRePrompt({
         id: "scrp_" + h(sessionId + k).slice(0, 14), sessionId, site: tool.name, workflow: ep.workflow || unsorted(tool),
-        attemptIndex: ep.corrections + 1, kind: "followup", text: turn.text, mode: mode === "redacted" && keepNumbers ? "full" : mode, now: t, user, reviewSec: review, source: "live",
+        attemptIndex: ep.corrections + 1, kind: "followup", text: turn.text, mode: mode === "redacted" ? "full" : mode, now: t, user, reviewSec: review, source: "live",
       });
-      if (rec && mode === "redacted" && keepNumbers) { rec.text = redact(rec.text, { keepNumbers: true }); rec.instruction = redact(rec.instruction, { keepNumbers: true }); }
+      if (rec && mode === "redacted") { rec.text = redact(rec.text, { keepNumbers }); rec.instruction = redact(rec.instruction, { keepNumbers }); }
       if (rec && unmeasured) rec.reviewSource = "estimated from the reply's length";
       if (rec) out.rePrompts.push(rec);
     });

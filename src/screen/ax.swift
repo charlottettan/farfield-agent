@@ -139,13 +139,14 @@ if !scopeWholeWindow, let web = findWebArea(win) { start = web; scope = "web" }
 // Used to recognise an AI chat whose tab title does not name the tool (ChatGPT titles are only the chat's name).
 if args.contains("--site-only") {
     var site = ""
+    var path = ""
     if let web = findWebArea(win), let u = attr(web, "AXURL") {
         var link: URL? = nil
         if CFGetTypeID(u) == CFURLGetTypeID() { link = (u as! CFURL) as URL } else { link = URL(string: str(u)) }
-        if let l = link, let host = l.host { var c = URLComponents(); c.scheme = l.scheme ?? "https"; c.host = host; site = c.string ?? "" }
+        if let l = link, let host = l.host { var c = URLComponents(); c.scheme = l.scheme ?? "https"; c.host = host; site = c.string ?? ""; path = l.path }
     }
-    struct SiteOut: Encodable { var url: String; var app: String; var engine: String }
-    guard let data = try? JSONEncoder().encode(SiteOut(url: site, app: appName, engine: "native")), let json = String(data: data, encoding: .utf8) else { fail("Could not write the result.") }
+    struct SiteOut: Encodable { var url: String; var path: String; var app: String; var engine: String }
+    guard let data = try? JSONEncoder().encode(SiteOut(url: site, path: path, app: appName, engine: "native")), let json = String(data: data, encoding: .utf8) else { fail("Could not write the result.") }
     print(json)
     exit(0)
 }

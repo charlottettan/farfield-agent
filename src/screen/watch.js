@@ -17,6 +17,10 @@ function mergeById(existing, incoming) {
 // Numbers in saved wording: masked unless the company chose to keep them (screen numbers keep). Names and emails stay hidden.
 export const keepNumbersOf = (cfg) => !!(cfg && cfg.screen && cfg.screen.maskNumbers === false);
 
+// A chat's own id from its page address ("/c/6a1f...", or "/g/<gpt>/c/<id>"), to tell two chats with the same title apart.
+// Only a salted fingerprint of it is kept (by the observer). Empty for anything else.
+export const chatIdOf = (p) => { const m = /\/c\/([A-Za-z0-9-]{8,})/.exec(String(p || "")); return m ? m[1] : ""; };
+
 // Which email apps may be read: none unless email reading was turned on (screen email on --agree).
 export const emailAppsOf = (sc) => (sc && sc.email ? (Array.isArray(sc.emailApps) && sc.emailApps.length ? sc.emailApps : EMAIL_APP_IDS) : []);
 
@@ -90,11 +94,11 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
 
       let win;
       try { win = await probe.title(); } catch (e) { return { skipped: "probe_error", error: String((e && e.message) || e).slice(0, 200) }; }
-      let tool = identify(win, sc.tools);
+      let tool = identify(win, sc.tools), chatId = "";
       // A browser tab whose title does not name the tool (ChatGPT shows only the chat's name): look at the tab's website only
       // (never its content) and recognise the tool from that. Gmail is recognised from its title, so it is left to the email check.
       if (!tool && isBrowser(win && win.app) && probe.site && !identifyEmail(win, emailApps)) {
-        try { const s = await probe.site(); if (s && s.url) tool = identify({ url: s.url }, sc.tools); } catch { /* not built yet, or no page: treat as not allowed */ }
+        try { const s = await probe.site(); if (s && s.url) { tool = identify({ url: s.url }, sc.tools); if (tool) chatId = chatIdOf(s.path); } } catch { /* not built yet, or no page: treat as not allowed */ }
       }
       const emailApp = tool ? null : identifyEmail(win, emailApps);
       if (emailApp) return await emailStep(emailApp, mode);
@@ -109,7 +113,7 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
         observer = createObserver({ now, mode, salt, state: saved.observerState, naming, keepNumbers: keepNumbersOf(cfg) });
         observerMode = mode + "|" + (sc.workflowNames || "task") + "|" + keepNumbersOf(cfg);
       }
-      const res = observer.feed(snapshot, tool, { title: chatTitle(win, tool) });
+      const res = observer.feed(snapshot, tool, { title: chatTitle(win, tool), chatId });
       // the AI's replies are handed to the email matcher, which keeps them in memory only
       if (emailApps.length) (await getTracker(mode)).noteReplies(tool.name, res.replies);
       const patch = {};

@@ -37,6 +37,8 @@ test("redaction: numbers can be kept readable; names and email addresses are alw
   assert.equal(redact(t, { keepNumbers: true }), "move it to 2:00 PM and fix the Q3 number for [name] at [email]");
   const masked = redact(t);
   assert.ok(!/\d/.test(masked) && !masked.includes("Tim") && !masked.includes("acme"));
+  // weekdays and months are not names (a live test hid "Tuesday")
+  assert.equal(redact("meet Tim on Tuesday in March", { keepNumbers: true }), "meet [name] on Tuesday in March");
 });
 
 test("reading time: about 240 words a minute, between 5 seconds and 5 minutes", () => {

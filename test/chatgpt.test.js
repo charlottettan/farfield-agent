@@ -119,3 +119,36 @@ test("native reader: --site-only is how the website is asked for", async () => {
   const src = fs.readFileSync(new URL("../src/screen/ax.swift", import.meta.url), "utf8");
   assert.ok(src.includes('args.contains("--site-only")') && src.includes("c.host = host"));
 });
+
+import { createObserver } from "../src/screen/observer.js";
+import { chatIdOf } from "../src/screen/watch.js";
+
+test("chat ids: two ChatGPT chats with the same title stay apart, so a new chat's first prompt is never a re-prompt", () => {
+  let t = 1_000_000;
+  const obs = createObserver({ now: () => t, mode: "redacted", salt: "s".repeat(16) });
+  const GPT = { id: "chatgpt", name: "ChatGPT" };
+  const first = PAGE(user("Write an email to Tim confirming our budget meeting Tuesday at 2pm. Sign it Sam."), plainReply("Hi Tim, confirming Tuesday at 2pm. Best, Sam"), user("make it more formal"), plainReply("Dear Tim, I am writing to confirm our meeting. Best regards, Sam"));
+  const r1 = obs.feed({ nodes: first }, GPT, { title: "Confirm Budget Meeting", chatId: "6a1f0000-aaaa" });
+  assert.equal(r1.rePrompts.length, 1);
+  // a brand-new chat, same auto-title, same first prompt: a different id, so a new conversation
+  t += 120_000;
+  const second = PAGE(user("Write an email to Tim confirming our budget meeting Tuesday at 2pm. Sign it Sam."), plainReply("Hi Tim, see you Tuesday at 2pm. Thanks, Sam"));
+  const r2 = obs.feed({ nodes: second }, GPT, { title: "Confirm Budget Meeting", chatId: "7b2e1111-bbbb" });
+  assert.equal(r2.rePrompts.length, 0, "the first prompt of a new chat is not a re-prompt");
+  assert.equal(obs.conversations(), 2);
+  // the same chat seen again later (its early messages scrolled away) is still recognised by its id
+  t += 30_000;
+  const later = PAGE(plainReply("Hi Tim, see you Tuesday at 2pm. Thanks, Sam"), user("wrong time, it is 3pm not 2pm"), plainReply("Hi Tim, see you Tuesday at 3pm. Thanks, Sam"));
+  const r3 = obs.feed({ nodes: later }, GPT, { title: "Confirm Budget Meeting", chatId: "7b2e1111-bbbb" });
+  assert.equal(r3.rePrompts.length, 1);
+  assert.equal(obs.conversations(), 2);
+  // what is remembered is a fingerprint, never the id itself
+  assert.ok(!JSON.stringify(obs.snapshot()).includes("7b2e1111"));
+});
+
+test("chat ids: read from ChatGPT addresses only", () => {
+  assert.equal(chatIdOf("/c/6a1f2b3c-4d5e-6f70"), "6a1f2b3c-4d5e-6f70");
+  assert.equal(chatIdOf("/g/g-abc123-analyst/c/6a1f2b3c-4d5e"), "6a1f2b3c-4d5e");
+  assert.equal(chatIdOf("/"), "");
+  assert.equal(chatIdOf(undefined), "");
+});
