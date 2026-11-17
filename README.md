@@ -68,6 +68,8 @@ What it produces: the same records as the browser extension. Each task in a chat
 - Numbers: `screen numbers keep` keeps numbers readable in saved wording ("2:00 PM" instead of "#:## PM"); names and email addresses stay hidden. Default: `mask`. A company should decide this deliberately.
 - Names: in redacted mode, weekdays and months ("Tuesday", "March") and acronyms ("Q3") are no longer hidden as names.
 - Re-prompt review time: when a reply and the follow-up are first seen in the same look, the review time is estimated from the reply's length (about 240 words a minute) and marked `reviewSource: "estimated from the reply's length"`, instead of 0.
+- Formula fixes (from the first live comps test): a changed spreadsheet formula gets the extra label "Formula error". The main label stays one of the four (Factual/Data Correction for a formula-only fix), because the record checks before backup and sync (vendor/analysis.js, shared with the extension) accept only those four and keep only known fields: extra labels (`categories`) stay on this computer until the extension and backend accept them too.
+- File credit: an Office file that arrives within 15 minutes after an AI chat with a reply was on screen (or 2 minutes before it) is credited to that AI tool and filed under that chat's task, like Gmail edits. Only the tool and task name are used, in memory. A file with no recent AI chat keeps the generic "AI-generated file".
 Records saved before this change keep their old values.
 
 ## Keeping a chat together (restarts, long chats, scrolling)

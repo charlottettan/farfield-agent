@@ -74,7 +74,8 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
     await storage.local.set({ emailFollowing: s });
   }
 
-  return async function step() {
+  let lastChat = null;   // { tool, workflow, at } of the last AI chat seen with a reply on screen; in memory only, no wording
+  const step = async function step() {
     try { return await look(); } finally { try { await showStatus(); } catch (e) { /* the status line is a convenience only */ } }
   };
 
@@ -115,6 +116,7 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
       }
       const res = observer.feed(snapshot, tool, { title: chatTitle(win, tool), chatId });
       // the AI's replies are handed to the email matcher, which keeps them in memory only
+      if (res.replies && res.replies.length) lastChat = { tool: tool.name, workflow: res.replies[res.replies.length - 1].workflow || "", at: t };
       if (emailApps.length) (await getTracker(mode)).noteReplies(tool.name, res.replies);
       const patch = {};
       if (res.rePrompts.length || res.sessions.length) {
@@ -130,6 +132,8 @@ export function createScreenStep({ storage, probe, now = Date.now, getConfig, lo
       return { tool: tool.id, basis: tool.basis, engine: snapshot.engine || "", ...(emailApps.length ? { repliesKept: (await getTracker(mode)).replyCount(), repliesSeen: res.replies.length } : {}), seen: res.seen, rePrompts: res.rePrompts.length, labels: res.labels.length, fellBack: snapshot.fellBack || "" };
     } finally { busy = false; }
   };
+  step.lastChat = () => lastChat;
+  return step;
 
   async function emailStep(app, mode) {
     const tr = await getTracker(mode);

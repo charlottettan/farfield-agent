@@ -18,7 +18,7 @@ import { createFileStorage } from "./storage.js";
 import { loadConfig } from "./config.js";
 import { createProbe } from "./screen/probe.js";
 import { createScreenStep } from "./screen/watch.js";
-import { categoriesOf, minutesFor } from "./edits.js";
+import { categoriesOf, mainCategory, minutesFor } from "./edits.js";
 
 const require = createRequire(import.meta.url);
 const A = require("../vendor/analysis.js");
@@ -30,6 +30,8 @@ const inflate = async (bytes) => new Uint8Array(await inflateRaw(bytes));
 const OFFICE = /\.(xlsx|xlsm|docx|pptx)$/i;
 const DAY = 86400000;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
+const CHAT_BEFORE_FILE = 15 * 60 * 1000;   // a file is credited to an AI chat seen up to 15 minutes before it arrived
+const CHAT_AFTER_FILE = 2 * 60 * 1000;     // or just after (the chat can come back into view right after the download)
 
 const sha = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 const keyOf = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
@@ -89,7 +91,7 @@ export function createAgent({ home, fetch: fetchImpl = globalThis.fetch, now = D
       if (priorCorr && priorCorr.t) corr.t = priorCorr.t;
       // every kind of change in the file (each changed cell or paragraph labelled on its own), the biggest first
       const kinds = categoriesOf(res.changes || []);
-      if (kinds.length) { corr.category = kinds[0]; corr.categories = kinds; run.category = kinds[0]; if (res.send) res.send.category = kinds[0]; }
+      if (kinds.length) { const main = mainCategory(kinds); corr.category = main; corr.categories = kinds; run.category = main; if (res.send) res.send.category = main; }
       // never more minutes than passed between the AI's version and this save
       if (corr.timeSource !== "entered") {
         const time = minutesFor({ estimate: corr.estimatedMinutes, elapsedSeconds: res.run.elapsedSeconds });
@@ -159,6 +161,10 @@ export function createAgent({ home, fetch: fetchImpl = globalThis.fetch, now = D
         if (!fs.existsSync(bf)) fs.writeFileSync(bf, buf, { mode: 0o600 });
         rec.state = "tracking";
         rec.baseline = { hash, file: bf, at: t, mtimeMs: en.mtimeMs };
+        // Which AI made it: the AI chat on screen shortly before the file arrived (an .xlsx downloaded from Claude is Claude's).
+        // Only the tool's name and the chat's task name are kept, never the chat's wording.
+        const chat = screenStep.lastChat ? screenStep.lastChat() : null;
+        if (chat && rec.firstSeen - chat.at <= CHAT_BEFORE_FILE && chat.at - rec.firstSeen <= CHAT_AFTER_FILE) rec.chat = { tool: chat.tool, workflow: chat.workflow || "" };
         rec.lastHash = hash;
         rec.processedSig = sig;
         baselined++;
@@ -175,9 +181,10 @@ export function createAgent({ home, fetch: fetchImpl = globalThis.fetch, now = D
         const before = await Files.readOfficeFile(fs.readFileSync(rec.baseline.file), en.name, inflate);
         const after = await Files.readOfficeFile(buf, en.name, inflate);
         const res = Files.compareFiles(before, after, {
-          workflow: workflowName(en.name), agent: cfg.agentName, fileName: en.name, now: t,
+          workflow: (rec.chat && rec.chat.workflow) || workflowName(en.name), agent: (rec.chat && rec.chat.tool) || cfg.agentName, fileName: en.name, now: t,
           aiModified: rec.baseline.mtimeMs, finalModified: en.mtimeMs,
         });
+        if (rec.chat) { res.run.agent = rec.chat.tool; res.run.chatTool = rec.chat.tool; }       // credited to the AI chat it came from
         if (res.totals.changed > 0) { await upsert(res, rec, en, t, cfg); recorded++; }
         rec.lastError = "";
       } catch (e) { rec.lastError = String((e && e.message) || e).slice(0, 200); }

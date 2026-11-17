@@ -428,7 +428,7 @@ function renderRecent(corrections) {
       head.appendChild(el("span", "c-time", fmtDate(c.timestamp)));
       head.appendChild(el("span", "agent-chip", (c.surface || "Gmail") + " · " + (c.agent || "Unassigned agent")));
       head.appendChild(el("span", "tag " + tagClass(c.category), c.category));
-      (Array.isArray(c.categories) ? c.categories.slice(1) : []).forEach((k) => head.appendChild(el("span", "tag " + tagClass(k), k)));   // other kinds of change in the same edit
+      (Array.isArray(c.categories) ? c.categories.filter((k) => k !== c.category) : []).forEach((k) => head.appendChild(el("span", "tag " + tagClass(k), k)));   // other kinds of change in the same edit
       const est = "~" + (Number(c.estimatedMinutes) || 0) + " min est.";
       const measured = c.activeSeconds ? " · " + c.activeSeconds + "s active" : "";
       head.appendChild(el("span", "c-mins", est + measured));
@@ -1502,7 +1502,7 @@ function renderTrace() {
       hd.appendChild(el("span", "tag tag-content", c.surface || "Email"));
       hd.appendChild(el("span", "tt", (c.wordsAdded || 0) + " words added, " + (c.wordsRemoved || 0) + " removed" + (c.agent ? " in " + c.agent + "\u2019s draft" : "")));
       if (c.category) hd.appendChild(el("span", "tag " + (c.category === "Factual/Data Correction" ? "tag-factual" : c.category === "Terminology/Context Mismatch" ? "tag-term" : c.category === "Tone/Style Edit" ? "tag-tone" : "tag-content"), c.category));
-      (Array.isArray(c.categories) ? c.categories.slice(1) : []).forEach((k) => hd.appendChild(el("span", "tag " + tagClass(k), k)));
+      (Array.isArray(c.categories) ? c.categories.filter((k) => k !== c.category) : []).forEach((k) => hd.appendChild(el("span", "tag " + tagClass(k), k)));
       hd.appendChild(el("span", "note", fmtMin(c.estimatedMinutes || 0) + " (estimated)" + (c.timestamp ? ", " + fmtDate(c.timestamp) : "")));
       em.push(hd);
       if (c.originalSnippet || c.editedSnippet) {
@@ -1543,7 +1543,7 @@ function renderTrace() {
     const hd = el("div", "trow");
     hd.appendChild(el("span", "tt", f.changedCells === 0 ? "No changes: the AI's output was used as it is." : f.changedCells + (f.changedCells === 1 ? " change" : " changes") + (f.formulaEdits ? ", " + f.formulaEdits + " to formulas" : "") + " in " + (f.fileName || "the file")));
     if (f.category) hd.appendChild(el("span", "tag " + (f.category === "Factual/Data Correction" ? "tag-factual" : f.category === "Terminology/Context Mismatch" ? "tag-term" : f.category === "Tone/Style Edit" ? "tag-tone" : "tag-content"), f.category));
-    (Array.isArray(f.categories) ? f.categories.slice(1) : []).forEach((k) => hd.appendChild(el("span", "tag " + tagClass(k), k)));
+    (Array.isArray(f.categories) ? f.categories.filter((k) => k !== f.category) : []).forEach((k) => hd.appendChild(el("span", "tag " + tagClass(k), k)));
     hd.appendChild(el("span", "note", fmtMin(f.estimatedMinutes) + (f.minutesSource === "entered" ? " (you entered this)" : " (estimated)") + (f.elapsedSeconds ? ", saved " + fmtSecs(f.elapsedSeconds) + " after the AI's version" : "")));
     edits.push(hd);
     f.changes.slice(0, 8).forEach((c) => { const r2 = el("div", "trow"); r2.appendChild(chgNode(c)); edits.push(r2); });

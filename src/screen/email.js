@@ -18,7 +18,7 @@
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 
-import { categoriesOf, changedPairs, minutesFor, maskEmails } from "../edits.js";
+import { categoriesOf, mainCategory, changedPairs, minutesFor, maskEmails } from "../edits.js";
 const require = createRequire(import.meta.url);
 const L = require("../../vendor/office-logic.js");
 
@@ -118,7 +118,7 @@ export function createEmailTracker({ now = Date.now, mode = "redacted", salt = "
     }
     // every kind of change in this email, the biggest first (a fact fixed and the tone softened are both kept)
     const kinds = built.correction ? categoriesOf(changedPairs(d.ai, d.last)) : [];
-    if (built.correction && kinds.length) { built.correction.category = kinds[0]; built.send.category = kinds[0]; }
+    if (built.correction && kinds.length) { built.correction.category = mainCategory(kinds); built.send.category = mainCategory(kinds); }
     // time from how long the draft was open, not only from the word count (the estimate said 7 minutes for an 83-second edit)
     const activeSeconds = Math.round(Math.max(0, d.lastAt - d.firstAt) / 1000);
     const time = built.correction ? minutesFor({ estimate: built.correction.estimatedMinutes, measuredSeconds: activeSeconds, idle: reason === "idle" }) : null;

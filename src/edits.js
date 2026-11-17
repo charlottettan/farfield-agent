@@ -33,11 +33,25 @@ export function changedPairs(before, after) {
   return out;
 }
 
+// A changed spreadsheet formula ("=AVERAGE(J5:J9)" -> "=AVERAGE(J5:J8)") is its own kind of change: the AI's formulas being wrong
+// is a different, more serious problem than one number being off. It is kept as an extra label only, because the code that checks
+// records before backup and sync (vendor/analysis.js, shared with the extension) accepts just the four main labels; the main label of
+// a formula-only fix is "Factual/Data Correction", which routes it to engineering.
+export const FORMULA = "Formula error";
+const isFormula = (v) => /^=/.test(String(v || "").trim());
+
+// The main label: the first of the four standard ones (never "Formula error"), or Factual for a formula-only fix.
+export function mainCategory(kinds) {
+  const std = Object.values(A.CATEGORIES);
+  return (kinds || []).find((k) => std.includes(k)) || (kinds && kinds.includes(FORMULA) ? A.CATEGORIES.FACTUAL : "");
+}
+
 // every kind of change in a list of before/after pairs, the biggest first
 export function categoriesOf(pairs) {
   const weight = {};
   for (const p of pairs || []) {
     if (String(p.before) === String(p.after)) continue;
+    if (isFormula(p.before) || isFormula(p.after)) { weight[FORMULA] = (weight[FORMULA] || 0) + 3; continue; }   // a formula weighs more than a word
     const a = A.analyzeEdit(A.normalizeText(String(p.before || "")), A.normalizeText(String(p.after || "")));
     // The analyser calls any change of 12% of the length "content added or removed"; for a short phrase ("Best regards," ->
     // "Cheers,") one word is half the length. A small swap in a short phrase, with no figures involved, is a tone change.
